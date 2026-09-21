@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>🚁 Hangar 3D — Carriera Pilota · Fase C</title>
+<title>🚁 Hangar 3D — Carriera Pilota · Fase C+</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { overflow:hidden; font-family:'Segoe UI',system-ui,sans-serif; background:#0b1420; }
@@ -54,7 +54,7 @@
 <body>
 <div id="app"></div>
 <div id="hud" class="panel">
-  <h1>🚁 HANGAR 3D <span>carriera pilota · fase C</span></h1>
+  <h1>🚁 HANGAR 3D <span>carriera pilota · fase C+</span></h1>
   <div id="tele"></div><div id="aero"></div><div id="obj"></div><div id="scoreline"></div>
   <div id="mapWrap"><canvas id="minimap" width="150" height="150"></canvas>
     <div style="font-size:10.5px;color:#8fb0cf;line-height:1.5" id="clockbox"></div></div>
@@ -81,7 +81,7 @@
 </div>
 <div id="menu" class="overlay"><div class="card">
   <h2>🚁 CARRIERA PILOTA</h2>
-  <p class="sub">Fase C: gancio baricentrico, benna antincendio, vento, meteo dinamico, cockpit</p>
+  <p class="sub">Fase C+: vegetazione rinnovata (erba a lame, abeti a 3 piani, rocce), gancio, benna, meteo, cockpit</p>
   <div id="mlist"></div>
   <div class="rowBtn"><button id="btnFree">🕊️ Volo libero</button></div>
 </div></div>
@@ -100,6 +100,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const clamp = THREE.MathUtils.clamp, smooth = THREE.MathUtils.smoothstep;
 const logEl = document.getElementById('log');
@@ -148,17 +149,21 @@ const cloudGroup=new THREE.Group();{ const c=document.createElement('canvas');c.
   const s=22+Math.random()*30; sp.scale.set(s,s*0.5,1); const a=Math.random()*6.283,r=70+Math.random()*180;
   sp.position.set(Math.cos(a)*r,60+Math.random()*45,Math.sin(a)*r); sp.userData.v=0.5+Math.random()*0.9; cloudGroup.add(sp);} scene.add(cloudGroup); }
 
-/* ===== vento condiviso (shader vegetazione) ===== */
+/* ===== vento condiviso con intervalli di altezza per materiale ===== */
 const windUni={uTime:{value:0},uWind:{value:0.7}};
-function patchWind(mat,strength){ mat.onBeforeCompile=sh=>{ sh.uniforms.uTime=windUni.uTime; sh.uniforms.uWind=windUni.uWind; sh.uniforms.uStr={value:strength};
-  sh.vertexShader='uniform float uTime;uniform float uWind;uniform float uStr;\n'+sh.vertexShader.replace('#include <begin_vertex>',
+function patchWind(mat,strength,hMin,hMax){ mat.onBeforeCompile=sh=>{
+  sh.uniforms.uTime=windUni.uTime; sh.uniforms.uWind=windUni.uWind;
+  sh.uniforms.uStr={value:strength}; sh.uniforms.uHMin={value:hMin}; sh.uniforms.uHMax={value:hMax};
+  sh.vertexShader='uniform float uTime;uniform float uWind;uniform float uStr;uniform float uHMin;uniform float uHMax;\n'+
+   sh.vertexShader.replace('#include <begin_vertex>',
   `#include <begin_vertex>
    #ifdef USE_INSTANCING
      vec3 ip=vec3(instanceMatrix[3][0],instanceMatrix[3][1],instanceMatrix[3][2]);
-     float hf=smoothstep(-1.2,1.8,position.y);
+     float hf=smoothstep(uHMin,uHMax,position.y);
      float ph=uTime*1.7+ip.x*0.35+ip.z*0.27;
-     transformed.x+=sin(ph)*0.24*uWind*uStr*hf;
-     transformed.z+=cos(ph*0.83)*0.17*uWind*uStr*hf;
+     float gust=0.75+0.25*sin(uTime*0.9+ip.x*0.11);
+     transformed.x+=sin(ph)*0.24*uWind*uStr*hf*gust;
+     transformed.z+=cos(ph*0.83)*0.17*uWind*uStr*hf*gust;
    #endif`); }; }
 
 const LAKE=new THREE.Vector2(-40,30), FIREPOS=new THREE.Vector2(50,40);
@@ -174,12 +179,11 @@ function terrainHeight(x,z){
   return h;
 }
 { const gGeo=new THREE.PlaneGeometry(780,780,130,130); gGeo.rotateX(-Math.PI/2); const p=gGeo.attributes.position; const cols=[];
-  const cLow=new THREE.Color(0x49713b),cHigh=new THREE.Color(0x83805a),tmp=new THREE.Color();
+  const cLow=new THREE.Color(0x41683a),cHigh=new THREE.Color(0x7d7a52),tmp=new THREE.Color();
   for(let i=0;i<p.count;i++){ const x=p.getX(i),z=p.getZ(i),h=terrainHeight(x,z); p.setY(i,h);
-    tmp.copy(cLow).lerp(cHigh,clamp(h/5,0,1)*0.75+0.12*Math.sin(x*0.2)*Math.cos(z*0.2)); cols.push(tmp.r,tmp.g,tmp.b); }
+    tmp.copy(cLow).lerp(cHigh,clamp(h/5,0,1)*0.75+0.14*Math.sin(x*0.2)*Math.cos(z*0.2)); cols.push(tmp.r,tmp.g,tmp.b); }
   gGeo.setAttribute('color',new THREE.Float32BufferAttribute(cols,3)); gGeo.computeVertexNormals();
   const ground=new THREE.Mesh(gGeo,new THREE.MeshStandardMaterial({vertexColors:true,roughness:1})); ground.receiveShadow=true; scene.add(ground); }
-/* lago */
 const lakeMesh=new THREE.Mesh(new THREE.CircleGeometry(15,40),new THREE.MeshPhysicalMaterial({color:0x1d4e6b,roughness:0.12,metalness:0.55}));
 lakeMesh.rotation.x=-Math.PI/2; lakeMesh.position.set(LAKE.x,-0.25,LAKE.y); lakeMesh.receiveShadow=true; scene.add(lakeMesh);
 
@@ -227,28 +231,120 @@ let sockPivot,sockMesh; const sockPos=new THREE.Vector3(8,3.15,6);
     const m=new THREE.Mesh(new THREE.ConeGeometry(rad,h,6+(Math.random()*4|0)),mat);
     m.position.set(Math.cos(a)*r,h/2-6,Math.sin(a)*r); m.rotation.y=Math.random()*Math.PI;
     if(h>50){const cap=new THREE.Mesh(new THREE.ConeGeometry(rad*0.3,h*0.28,6),snow);cap.position.y=h*0.36;m.add(cap);} scene.add(m); } }
-/* alberi + erba animati dal vento */
-{ const COUNT=150;
+
+/* ================= VEGETAZIONE RINNOVATA ================= */
+/* abeti: chioma a 3 coni mergiati + tronco alto + colore per istanza */
+{
+  const COUNT=150;
+  const c1=new THREE.ConeGeometry(1.25,2.5,8);  c1.translate(0,1.25,0);
+  const c2=new THREE.ConeGeometry(0.92,2.0,8);  c2.translate(0,2.55,0);
+  const c3=new THREE.ConeGeometry(0.55,1.5,8);  c3.translate(0,3.6,0);
+  const canopyGeo=mergeGeometries([c1,c2,c3]);
   const trunkMat=new THREE.MeshStandardMaterial({color:0x6b4a2f,roughness:1,flatShading:true});
-  const leafMat=new THREE.MeshStandardMaterial({color:0x2f6b33,roughness:1,flatShading:true}); patchWind(leafMat,1.0);
-  const trunks=new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12,0.2,1.3,6),trunkMat,COUNT);
-  const leaves=new THREE.InstancedMesh(new THREE.ConeGeometry(1.15,3.3,7),leafMat,COUNT);
-  trunks.castShadow=leaves.castShadow=true; const d=new THREE.Object3D(); let pl=0,gu=0;
-  while(pl<COUNT&&gu++<4000){ const a=Math.random()*6.283,r=19+Math.random()*100,x=Math.cos(a)*r,z=Math.sin(a)*r;
-    if(x>-16&&x<84&&Math.abs(z)<7.5)continue; if(Math.hypot(x-18,z+17)<12)continue; if(Math.hypot(x-60,z+40)<14)continue;
-    if(Math.hypot(x-LAKE.x,z-LAKE.y)<17)continue; if(Math.hypot(x-FIREPOS.x,z-FIREPOS.y)<12)continue;
-    const y=terrainHeight(x,z),s=0.7+Math.random()*1.2; d.rotation.y=Math.random()*Math.PI; d.scale.setScalar(s);
-    d.position.set(x,y+0.6*s,z); d.updateMatrix(); trunks.setMatrixAt(pl,d.matrix);
-    d.position.y=y+2.5*s; d.updateMatrix(); leaves.setMatrixAt(pl,d.matrix); pl++; }
-  trunks.count=leaves.count=pl; scene.add(trunks,leaves);
-  const GC=600, grassMat=new THREE.MeshStandardMaterial({color:0x5d8a43,roughness:1,side:THREE.DoubleSide}); patchWind(grassMat,2.2);
-  const gg=new THREE.PlaneGeometry(0.14,0.55); gg.translate(0,0.275,0);
-  const grass=new THREE.InstancedMesh(gg,grassMat,GC); const d2=new THREE.Object3D(); let p2=0,g2=0;
-  while(p2<GC&&g2++<3000){ const a=Math.random()*6.283,r=7+Math.random()*30,x=Math.cos(a)*r,z=Math.sin(a)*r;
-    if(Math.hypot(x,z)<6)continue; if(x>-10&&x<80&&Math.abs(z)<5)continue;
-    d2.position.set(x,terrainHeight(x,z),z); d2.rotation.y=Math.random()*Math.PI; d2.scale.setScalar(0.8+Math.random()*0.8);
-    d2.updateMatrix(); grass.setMatrixAt(p2++,d2.matrix); }
-  grass.count=p2; scene.add(grass); }
+  const leafMat=new THREE.MeshStandardMaterial({color:0xffffff,roughness:1,flatShading:true});
+  patchWind(leafMat,0.9,0.5,4.4);
+  const trunks=new THREE.InstancedMesh(new THREE.CylinderGeometry(0.13,0.22,1.7,6),trunkMat,COUNT);
+  const leaves=new THREE.InstancedMesh(canopyGeo,leafMat,COUNT);
+  trunks.castShadow=leaves.castShadow=true;
+  const d=new THREE.Object3D(), col=new THREE.Color();
+  let pl=0,gu=0;
+  while(pl<COUNT&&gu++<5000){
+    const a=Math.random()*6.283,r=19+Math.random()*100,x=Math.cos(a)*r,z=Math.sin(a)*r;
+    if(x>-16&&x<84&&Math.abs(z)<7.5)continue; if(Math.hypot(x-18,z+17)<12)continue;
+    if(Math.hypot(x-60,z+40)<14)continue; if(Math.hypot(x-LAKE.x,z-LAKE.y)<17)continue;
+    if(Math.hypot(x-FIREPOS.x,z-FIREPOS.y)<12)continue;
+    const y=terrainHeight(x,z), s=0.65+Math.random()*1.1;
+    d.rotation.set((Math.random()-0.5)*0.06, Math.random()*Math.PI, (Math.random()-0.5)*0.06);
+    d.scale.setScalar(s);
+    d.position.set(x,y+0.85*s,z); d.updateMatrix(); trunks.setMatrixAt(pl,d.matrix);
+    d.position.y=y+1.6*s; d.updateMatrix(); leaves.setMatrixAt(pl,d.matrix);
+    col.setHSL(0.30+Math.random()*0.06, 0.45+Math.random()*0.2, 0.22+Math.random()*0.12);
+    leaves.setColorAt(pl,col);
+    pl++;
+  }
+  trunks.count=leaves.count=pl;
+  if(leaves.instanceColor)leaves.instanceColor.needsUpdate=true;
+  scene.add(trunks,leaves);
+}
+/* erba: ciuffi a 4 lame affusolate con vertex colors, distribuzione a chiazze */
+function makeGrassTuftGeometry(){
+  const pos=[],col=[],idx=[];
+  const cBase=new THREE.Color(0x2c5522),cMid=new THREE.Color(0x4d8a30),cTip=new THREE.Color(0x8cc054);
+  const blades=4;
+  for(let b=0;b<blades;b++){
+    const ang=b*(Math.PI*2/blades)+(Math.random()-0.5)*0.9;
+    const ca=Math.cos(ang),sa=Math.sin(ang);
+    const h=0.26+Math.random()*0.18, w=0.016+Math.random()*0.010;
+    const bend=(Math.random()-0.5)*0.18, lean=0.10+Math.random()*0.18;
+    const rows=[
+      {y:0,        hw:w,      off:0},
+      {y:0.55*h,   hw:w*0.55, off:bend*0.35+lean*0.3*h},
+      {y:h,        hw:0.0001, off:bend+lean*0.7*h}
+    ];
+    const base=pos.length/3;
+    rows.forEach((r,ri)=>{
+      const pts = ri<2 ? [[r.off,r.y,-r.hw],[r.off,r.y,r.hw]] : [[r.off,r.y,0]];
+      pts.forEach(p=>{
+        const x=p[0]*ca+p[2]*sa, z=-p[0]*sa+p[2]*ca;
+        pos.push(x,p[1],z);
+        const cc = ri===0?cBase:ri===1?cMid:cTip;
+        col.push(cc.r,cc.g,cc.b);
+      });
+    });
+    idx.push(base+0,base+1,base+3, base+0,base+3,base+2, base+2,base+3,base+4);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+{
+  const GC=2600;
+  const grassMat=new THREE.MeshStandardMaterial({vertexColors:true,roughness:1,side:THREE.DoubleSide});
+  patchWind(grassMat,2.4,0.04,0.5);
+  const grass=new THREE.InstancedMesh(makeGrassTuftGeometry(),grassMat,GC);
+  const d=new THREE.Object3D(), col=new THREE.Color();
+  let p2=0,g2=0;
+  while(p2<GC&&g2++<40000){
+    const a=Math.random()*6.283, r=6.5+Math.random()*38, x=Math.cos(a)*r, z=Math.sin(a)*r;
+    if(Math.hypot(x,z)<6.2)continue;
+    if(x>-10&&x<80&&Math.abs(z)<5)continue;
+    if(Math.hypot(x-LAKE.x,z-LAKE.y)<16)continue;
+    const cluster=n2(x*0.09+31,z*0.09-7)+0.45*n2(x*0.23-3,z*0.23+11);
+    if(cluster<0.05)continue;               /* chiazze, non tappeto uniforme */
+    const y=terrainHeight(x,z);
+    d.position.set(x,y-0.02,z);
+    d.rotation.set(0,Math.random()*Math.PI,0);
+    d.scale.setScalar(0.7+Math.random()*0.7);
+    d.updateMatrix(); grass.setMatrixAt(p2,d.matrix);
+    col.setHSL(0.26+Math.random()*0.07,0.45+Math.random()*0.25,0.75+Math.random()*0.25);
+    grass.setColorAt(p2,col);
+    p2++;
+  }
+  grass.count=p2;
+  if(grass.instanceColor)grass.instanceColor.needsUpdate=true;
+  scene.add(grass);
+}
+/* rocce instanziate */
+{
+  const RC=70;
+  const rockMat=new THREE.MeshStandardMaterial({color:0x8a8f96,roughness:1,flatShading:true});
+  const rocks=new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.35,0),rockMat,RC);
+  rocks.castShadow=true;
+  const d=new THREE.Object3D(); let p=0,g=0;
+  while(p<RC&&g++<2000){
+    const a=Math.random()*6.283,r=10+Math.random()*90,x=Math.cos(a)*r,z=Math.sin(a)*r;
+    if(Math.hypot(x,z)<8)continue; if(x>-12&&x<82&&Math.abs(z)<6)continue;
+    if(Math.hypot(x-LAKE.x,z-LAKE.y)<16)continue;
+    d.position.set(x,terrainHeight(x,z)+0.08,z);
+    d.rotation.set(Math.random()*3,Math.random()*3,Math.random()*3);
+    d.scale.set(0.5+Math.random()*1.6,0.4+Math.random()*0.9,0.5+Math.random()*1.6);
+    d.updateMatrix(); rocks.setMatrixAt(p++,d.matrix);
+  }
+  rocks.count=p; scene.add(rocks);
+}
 const flock=new THREE.Group();{ const wg=new THREE.PlaneGeometry(0.95,0.3); wg.rotateX(-Math.PI/2); wg.translate(0.47,0,0);
   const mat=new THREE.MeshBasicMaterial({color:0x20242a,side:THREE.DoubleSide});
   for(let i=0;i<6;i++){ const b=new THREE.Group(); const wl=new THREE.Mesh(wg,mat),wr=new THREE.Mesh(wg,mat); wr.rotation.y=Math.PI;
@@ -279,7 +375,7 @@ function updateDust(dt,hx,hz,power){ if(power>0.01){ dustAcc+=power*150*dt;
     } else { dAlpha[i]=0; dPos[i*3+1]=-999; } }
   dustGeo.attributes.position.needsUpdate=true; dustGeo.attributes.aAlpha.needsUpdate=true; dustGeo.attributes.aSize.needsUpdate=true; }
 
-/* ===== meteo: pioggia (scie), neve, nebbia ===== */
+/* ===== meteo ===== */
 let weather=0; const WNAMES=['SERENO','PIOGGIA','NEBBIA','NEVE'];
 let overcastMix=0,fogMix=0,rainMix=0,snowMix=0;
 const RAIN_N=700, rPos=new Float32Array(RAIN_N*6);
@@ -291,21 +387,21 @@ rain.frustumCulled=false; rain.visible=false; scene.add(rain);
 const SNOW_N=600,sPos=new Float32Array(SNOW_N*3),sPh=new Float32Array(SNOW_N);
 for(let i=0;i<SNOW_N;i++){ sPos[i*3]=Math.random()*80-40; sPos[i*3+1]=Math.random()*30; sPos[i*3+2]=Math.random()*80-40; sPh[i]=Math.random()*6.28; }
 const snowGeo=new THREE.BufferGeometry(); snowGeo.setAttribute('position',new THREE.BufferAttribute(sPos,3));
-const snow=new THREE.Points(snowGeo,new THREE.PointsMaterial({color:0xffffff,size:0.22,transparent:true,opacity:0,depthWrite:false}));
-snow.frustumCulled=false; snow.visible=false; scene.add(snow);
-function updateWeather(dt,t){ const oT=(weather===1||weather===3)?1:0, fT=weather===2?1:0, rT=weather===1?1:0, sT=weather===3?1:0;
+const snowPts=new THREE.Points(snowGeo,new THREE.PointsMaterial({color:0xffffff,size:0.22,transparent:true,opacity:0,depthWrite:false}));
+snowPts.frustumCulled=false; snowPts.visible=false; scene.add(snowPts);
+function updateWeather(dt,t){ const oT=(weather===1||weather===3)?1:0,fT=weather===2?1:0,rT=weather===1?1:0,sT=weather===3?1:0;
   const k=Math.min(1,dt*0.7);
   overcastMix+=(oT-overcastMix)*k; fogMix+=(fT-fogMix)*k; rainMix+=(rT-rainMix)*k; snowMix+=(sT-snowMix)*k;
-  rain.visible=rainMix>0.02; snow.visible=snowMix>0.02;
-  rain.material.opacity=0.45*rainMix; snow.material.opacity=0.85*snowMix;
+  rain.visible=rainMix>0.02; snowPts.visible=snowMix>0.02;
+  rain.material.opacity=0.45*rainMix; snowPts.material.opacity=0.85*snowMix;
   if(rain.visible){ const cp=camera.position;
-    for(let i=0;i<RAIN_N;i++){ let y=rPos[i*6+1]-30*dt, x=rPos[i*6]+windUni.uWind*3*dt, z=rPos[i*6+2];
-      if(y<cp.y-16){ y=cp.y+16; x=cp.x+Math.random()*70-35; z=cp.z+Math.random()*70-35; }
+    for(let i=0;i<RAIN_N;i++){ let y=rPos[i*6+1]-30*dt,x=rPos[i*6]+windUni.uWind*3*dt,z=rPos[i*6+2];
+      if(y<cp.y-16){y=cp.y+16;x=cp.x+Math.random()*70-35;z=cp.z+Math.random()*70-35;}
       rPos[i*6]=x;rPos[i*6+1]=y;rPos[i*6+2]=z;rPos[i*6+3]=x+0.12;rPos[i*6+4]=y+1.0;rPos[i*6+5]=z; }
     rainGeo.attributes.position.needsUpdate=true; }
-  if(snow.visible){ const cp=camera.position;
+  if(snowPts.visible){ const cp=camera.position;
     for(let i=0;i<SNOW_N;i++){ let y=sPos[i*3+1]-1.6*dt; sPos[i*3]+=Math.sin(t*0.8+sPh[i])*0.6*dt;
-      if(y<cp.y-14){ y=cp.y+16; sPos[i*3]=cp.x+Math.random()*60-30; sPos[i*3+2]=cp.z+Math.random()*60-30; }
+      if(y<cp.y-14){y=cp.y+16;sPos[i*3]=cp.x+Math.random()*60-30;sPos[i*3+2]=cp.z+Math.random()*60-30;}
       sPos[i*3+1]=y; }
     snowGeo.attributes.position.needsUpdate=true; }
   scene.fog.near=THREE.MathUtils.lerp(80,7,fogMix); scene.fog.far=THREE.MathUtils.lerp(340,60,fogMix); }
@@ -318,9 +414,8 @@ let collective=0.35,cycLong=0,cycLat=0,vx=0,vz=0,yawVel=0,rotorShadowOn=true;
 let setpoint=3.4,trimInt=0,fIGE=1,fETL=1,fVRS=0,fSTALL=0,collReq=0;
 let coach={ige:false,etl:false,vrs:false,stall:false},shakeAmp=0;
 const lastShake=new THREE.Vector3();
-/* gancio baricentrico / verricello / carico */
-let cableLen=0, load=null, cableMesh=null, hookLocal=new THREE.Vector3(0.3,-0.6,0);
-let fire=null, splash=null;
+let cableLen=0,load=null,cableMesh=null,hookLocal=new THREE.Vector3(0.3,-0.6,0);
+let fire=null,splash=null;
 const _b=new THREE.Box3(),_s=new THREE.Vector3(),_c=new THREE.Vector3(),_v=new THREE.Vector3(),_q=new THREE.Quaternion(),_f=new THREE.Vector3(),_r=new THREE.Vector3();
 function minAxis(s){return (s.y<=s.x&&s.y<=s.z)?'y':(s.x<=s.z?'x':'z');}
 function setRotorCastShadow(on){ [rotors.main,rotors.tail].forEach(r=>{if(r)r.obj.traverse(o=>{if(o.isMesh)o.castShadow=on;});}); }
@@ -330,7 +425,6 @@ function attachBlur(r){ if(!r)return; _b.setFromObject(r.obj); _b.getSize(_s);
   _b.getCenter(_c); tilt.updateWorldMatrix(true,true); disc.position.copy(tilt.worldToLocal(_c.clone()));
   if(r.axis==='y')disc.rotation.x=-Math.PI/2; else if(r.axis==='x')disc.rotation.y=Math.PI/2;
   tilt.add(disc); r.blur=disc.material; }
-
 const loader=new GLTFLoader(); const draco=new DRACOLoader();
 draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/'); loader.setDRACOLoader(draco);
 function buildRig(){ heli=new THREE.Group(); scene.add(heli);
@@ -432,7 +526,6 @@ async function downloadModels(){ for(const c of CANDIDATES){ log(`→ Download: 
     catch(e){ log('✗ Fonte non raggiungibile','err'); } }
   log('⚠ Fonti offline → H135 procedurale','warn'); buildProceduralH135(); }
 
-/* ===== incendio ===== */
 function buildFire(x,z){ const grp=new THREE.Group(); grp.position.set(x,terrainHeight(x,z),z);
   const FN=220,fp=new Float32Array(FN*3),fa=new Float32Array(FN),fsz=new Float32Array(FN),fseed=new Float32Array(FN);
   for(let i=0;i<FN;i++){ fseed[i]=Math.random(); fp[i*3]=Math.random()*4-2; fp[i*3+1]=Math.random()*3; fp[i*3+2]=Math.random()*4-2; }
@@ -459,8 +552,6 @@ function updateFire(dt,t){ if(!fire)return; const h=clamp(fire.health,0,2)/2;
     fire.fg.attributes.position.array[i*3+1]=life*3.4*h+0.2;
     fire.fg.attributes.position.array[i*3+2]=Math.sin(a)*rr; }
   fire.fg.attributes.position.needsUpdate=true; fire.fg.attributes.aAlpha.needsUpdate=true; fire.fg.attributes.aSize.needsUpdate=true; }
-
-/* ===== splash acqua ===== */
 function buildSplash(){ const N=120,p=new Float32Array(N*3),v=new Float32Array(N*3),l=new Float32Array(N).fill(9);
   const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(p,3));
   const m=new THREE.Points(g,new THREE.PointsMaterial({color:0xbfe3ff,size:0.3,transparent:true,opacity:0.8,depthWrite:false}));
@@ -475,22 +566,21 @@ function updateSplash(dt){ if(!splash)return; let alive=false;
     else splash.p[i*3+1]=-999; }
   splash.m.visible=alive; splash.g.attributes.position.needsUpdate=true; }
 
-/* ===== missioni ===== */
 const MISSIONS=[
  {id:1,nome:'Primo volo',par:110,type:'rings',
   brief:'Avvia (M), decolla in HOLD (SPAZIO), infila i 3 anelli e atterra dolcemente su H.',
   rings:[[0,-28,5],[34,-14,6],[34,18,6]],land:[0,0],landName:'Eliporto H'},
  {id:2,nome:'Rotta panoramica',par:140,type:'rings',
-  brief:'Rotta alta: 4 anelli sopra la valle, poi atterra su H. Senti IGE ed ETL.',
+  brief:'Rotta alta: 4 anelli sopra la valle, poi atterra su H.',
   rings:[[24,2,9],[52,-6,11],[46,-34,9],[12,-38,7]],land:[0,0],landName:'Eliporto H'},
  {id:3,nome:'LZ Bravo — precisione',par:160,type:'rings',
-  brief:'Trasferimento su LZ Bravo: atterra nel centro con V/S < 1 m/s. Evita il VRS.',
+  brief:'Trasferimento su LZ Bravo: atterra nel centro con V/S < 1 m/s.',
   rings:[[20,-20,7],[45,-32,8]],land:[60,-40],landName:'LZ Bravo'},
  {id:4,nome:'Cargo HEMS — gancio',par:200,type:'cargo',
-  brief:'Deposito cassa presso l\'hangar (14,-10): portati sopra, allunga il verricello (V), aggancia (G), consegna su LZ Bravo rilasciando (G) entro 6 m dal centro.',
+  brief:'Cassa al deposito (14,-10): verricello (V), aggancia (G), consegna su LZ Bravo (G entro 6 m).',
   rings:[],land:[0,0],crate:[14,-10],target:[60,-40],landName:'LZ Bravo'},
  {id:5,nome:'Antincendio — benna',par:260,type:'fire',
-  brief:'Benna agganciata: rifornisci al lago a ovest (cavo in acqua), scarica (H) sul rogo a nord-est. Servono 2 secchiate. Poi atterra su H.',
+  brief:'Rifornisci al lago, scarica (H) sul rogo a NE: 2 secchiate. Poi atterra su H.',
   rings:[],land:[0,0],lake:LAKE,fire:FIREPOS,landName:'Eliporto H'}];
 const game={state:'menu',mission:null,ringIdx:0,phase:0,score:0,elapsed:0,ringPts:0,landPts:0,timePts:0,hard:false,bonus:0,fills:0,dumps:0};
 const ringsGroup=new THREE.Group(); scene.add(ringsGroup); let rings=[];
@@ -534,7 +624,7 @@ function makeCrate(pos){ const g=new THREE.Group();
 function makeBucket(){ const g=new THREE.Group();
   const b=new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.4,0.7,14,1,true),new THREE.MeshStandardMaterial({color:0xd01f2f,roughness:.5,side:THREE.DoubleSide}));
   g.add(b); const w=new THREE.Mesh(new THREE.CircleGeometry(0.5,16),new THREE.MeshPhysicalMaterial({color:0x2277cc,roughness:.1,transparent:true,opacity:.85}));
-  w.rotation.x=-Math.PI/2; w.position.y=0.2; w.name='water'; g.add(w); return g; }
+  w.rotation.x=-Math.PI/2; w.position.y=0.2; w.name='water'; w.visible=false; g.add(w); return g; }
 function startMission(m){ game.mission=m; game.state='fly'; game.ringIdx=0; game.phase=0; game.score=0; game.elapsed=0;
   game.ringPts=0;game.landPts=0;game.timePts=0;game.hard=false;game.bonus=0;game.fills=0;game.dumps=0;
   resetHeli(); buildRings(m.rings||[]);
@@ -573,9 +663,7 @@ function finishCargo(off){ game.timePts=Math.max(0,Math.round((game.mission.par-
   endMission(`Aggancio cassa → <b>+50</b><br>Consegna LZ Bravo (off ${off.toFixed(1)} m) → <b>+${del}</b>`,total,420); }
 function finishFire(){ game.timePts=Math.max(0,Math.round((game.mission.par-game.elapsed)*2));
   const total=game.bonus+200+game.timePts;
-  endMission(`Rifornimenti ${game.fills} → <b>+${game.fills*50}</b><br>Sganci efficaci ${game.dumps} → <b>+${game.dumps*100}</b><br>Rogo spento → <b>+200</b>`,total,560); }
-
-/* hook / verricello / acqua */
+  endMission(`Rifornimenti ${game.fills} → <b>+${game.fills*50}</b><br>Sganci ${game.dumps} → <b>+${game.dumps*100}</b><br>Rogo spento → <b>+200</b>`,total,560); }
 const btnHook=document.getElementById('btnHook');
 function anchorWorld(out){ return heli.localToWorld(out.copy(hookLocal)); }
 function cableEndWorld(out){ return anchorWorld(out).add(_v.set(0,-cableLen,0)); }
@@ -586,7 +674,7 @@ function toggleHook(){ if(game.state!=='fly'&&game.state!=='free')return;
       if(end.distanceTo(crateMesh.position.clone().setY(crateMesh.position.y+0.5))<1.6){
         load={type:'crate',attached:true,water:0,pos:crateMesh.position.clone(),vel:new THREE.Vector3(),mesh:crateMesh};
         crateMesh=null; cableLen=Math.max(1,anchorWorld(new THREE.Vector3()).y-load.pos.y);
-        game.bonus+=50; radio('OP.VERRICELLO','Cassa agganciata. +50 pt. Consegna su LZ Bravo.');
+        game.bonus+=50; radio('OP.VERRICELLO','Cassa agganciata. +50 pt.');
         btnHook.classList.add('on');
       } else radio('OP.VERRICELLO','Nessun carico in testata al cavo: posizionati e allunga (V).');
     } else radio('OP.VERRICELLO','Nessun carico disponibile qui.');
@@ -598,19 +686,17 @@ function toggleHook(){ if(game.state!=='fly'&&game.state!=='free')return;
           btnHook.classList.remove('on'); finishCargo(off); return; } }
       load.mesh.position.copy(load.pos); scene.add(load.mesh); load.attached=false; load=null;
       btnHook.classList.remove('on'); radio('OP.VERRICELLO','Carico rilasciato.');
-    } else radio('OP.VERRICELLO','La benna è fissa: usa H per sganciare l\'acqua.');
+    } else radio('OP.VERRICELLO','La benna è fissa: usa H per l\'acqua.');
   } }
 function dumpWater(){ if(!load||load.type!=='bucket'||load.water<=0){ radio('OP.VERRICELLO','Benna vuota.'); return; }
   const end=cableEndWorld(new THREE.Vector3()); triggerSplash(end);
   if(fire&&Math.hypot(end.x-fire.x,end.z-fire.z)<9&&fire.health>0){
-    fire.health-=load.water; game.dumps++; game.bonus+=100;
-    radio('TORRE',`Sgancio efficace sul rogo! +100 pt. Salute fuoco: ${Math.max(0,fire.health).toFixed(1)}/2.`);
-    if(fire.health<=0){ radio('TORRE','ROGO SPENTO! Rientra e atterra su H.'); }
-  } else radio('OP.VERRICELLO','Acqua sganciata, ma lontano dal bersaglio.');
+    fire.health-=load.water; game.dumps++; game.bonus+=100; game.fills=Math.max(game.fills,0);
+    radio('TORRE',`Sgancio efficace! +100 pt. Fuoco: ${Math.max(0,fire.health).toFixed(1)}/2.`);
+    if(fire.health<=0)radio('TORRE','ROGO SPENTO! Rientra e atterra su H.');
+  } else radio('OP.VERRICELLO','Acqua sganciata lontano dal bersaglio.');
   load.water=0; if(load.mesh){const w=load.mesh.getObjectByName('water'); if(w)w.visible=false;} }
 btnHook.onclick=toggleHook;
-
-/* minimappa/bussola/strumenti */
 const mapCv=document.getElementById('minimap'),mapCtx=mapCv.getContext('2d');
 const compCv=document.getElementById('compassCv'),compCtx=compCv.getContext('2d');
 const gAtt=document.getElementById('gAtt').getContext('2d'),gAlt=document.getElementById('gAlt').getContext('2d'),gVsi=document.getElementById('gVsi').getContext('2d');
@@ -671,8 +757,6 @@ function drawGauges(){ if(camIdx!==4){gaugesEl.style.display='none';return;} gau
   gauge(gVsi,'V/S m/s',ctx=>{ const a=clamp(vzV,-10,10)/10*2.2;
     ctx.strokeStyle=vzV<-2?'#ff7b7b':'#5dde8f'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(Math.sin(a)*30,-Math.cos(a)*30); ctx.stroke();
     ctx.fillStyle='#cfe6ff'; ctx.font='11px monospace'; ctx.textAlign='center'; ctx.fillText(vzV.toFixed(1),0,20); }); }
-
-/* giorno/notte */
 let tod=10.2,autoCycle=true;
 const C_DAY={top:0x2f6ab8,mid:0x9cc3e8,bot:0xe3edf4,fog:0xd4e3ee},C_DUSK={top:0x1b2a52,mid:0xb06a4a,bot:0xf2b27a,fog:0xc98d6b},C_NIGHT={top:0x04070f,mid:0x0a1226,bot:0x16233c,fog:0x0a1226};
 const _c1=new THREE.Color(),_c2=new THREE.Color(),_c3=new THREE.Color(),_gray=new THREE.Color(0x69717a);
@@ -693,8 +777,6 @@ function applyTod(){ const theta=(tod-6)/12*Math.PI,elev=Math.sin(theta);
   GLOW.forEach(m=>m.emissiveIntensity=0.9+kN*2.6+kD*0.8);
   const hh=Math.floor(tod),mm=Math.floor((tod%1)*60);
   clockbox.innerHTML=`ORE ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')} · ${WNAMES[weather]}`; }
-
-/* azioni */
 const btnEngine=document.getElementById('btnEngine'),btnHover=document.getElementById('btnHover'),btnDoors=document.getElementById('btnDoors'),
       btnCam=document.getElementById('btnCam'),btnAudio=document.getElementById('btnAudio'),btnMenu=document.getElementById('btnMenu');
 function toggleEngine(){ engineOn=!engineOn; btnEngine.textContent=engineOn?'🔑 Spegni motore':'🔑 Avvia motore';
@@ -706,8 +788,7 @@ function toggleDoors(){ doorOpen=!doorOpen; btnDoors.classList.toggle('on',doorO
 const presets=[{p:new THREE.Vector3(9,4.5,10),t:new THREE.Vector3(0,1.5,0)},{p:new THREE.Vector3(-7.5,2.4,-6),t:new THREE.Vector3(0,1.4,0)},
   {p:new THREE.Vector3(0.5,15,7),t:new THREE.Vector3(0,0.5,0)},{p:null,t:null},{p:null,t:null}];
 let camIdx=0,camTween=null;
-function cycleCamera(){ camIdx=(camIdx+1)%presets.length; camTween=presets[camIdx].p?presets[camIdx]:null;
-  controls.enabled=camIdx!==4; }
+function cycleCamera(){ camIdx=(camIdx+1)%presets.length; camTween=presets[camIdx].p?presets[camIdx]:null; controls.enabled=camIdx!==4; }
 let audioOn=false,ac=null,master,saw,bp,chopGain,rainGain;
 function toggleAudio(){ if(!ac){ ac=new (window.AudioContext||window.webkitAudioContext)();
     master=ac.createGain(); master.gain.value=0; master.connect(ac.destination);
@@ -743,8 +824,6 @@ addEventListener('keyup',e=>{keys[e.code]=false;});
 const elCol=document.getElementById('collective'),elCL=document.getElementById('cycLong'),elCT=document.getElementById('cycLat');
 elCol.addEventListener('input',e=>{ if(holdOn)setpoint=clamp(+e.target.value*10,0,12); else collective=+e.target.value; });
 elCL.addEventListener('input',e=>cycLong=+e.target.value); elCT.addEventListener('input',e=>cycLat=+e.target.value);
-
-/* ===== loop ===== */
 const clock=new THREE.Clock();
 function animate(){ requestAnimationFrame(animate);
   const dt=Math.min(clock.getDelta(),0.05),t=clock.elapsedTime;
@@ -805,14 +884,12 @@ function animate(){ requestAnimationFrame(animate);
   doors.forEach(d=>{ if(d.userData.side!==undefined)d.rotation.y=d.userData.side*doorAmt*1.05;
     else if(d.userData.baseRot!==undefined)d.rotation.y=d.userData.baseRot+doorAmt*0.9; });
   if(beacon)beacon.material.emissiveIntensity=(rpm>0.05&&Math.sin(t*6)>0.6)?3:0.25;
-  /* cavo + carico oscillante */
   if(heli&&(cableLen>0.3||load)){ const aW=anchorWorld(new THREE.Vector3()); const end=aW.clone().add(_v.set(0,-cableLen,0));
     if(load&&load.attached){ const tgt=end;
       const acc=_v.copy(tgt).sub(load.pos).multiplyScalar(14).addScaledVector(load.vel,-4.5);
       load.vel.addScaledVector(acc,dt); load.pos.addScaledVector(load.vel,dt);
       load.mesh.position.copy(load.pos); load.mesh.rotation.z=clamp(-load.vel.x*0.06,-0.4,0.4); load.mesh.rotation.x=clamp(load.vel.z*0.06,-0.4,0.4);
       if(load.type==='bucket'&&load.water<=0){ const w=load.mesh.getObjectByName('water'); if(w)w.visible=false; }
-      /* rifornimento benna al lago */
       if(load.type==='bucket'&&load.water<1){ const dL=Math.hypot(end.x-LAKE.x,end.z-LAKE.y);
         if(dL<7&&end.y<-0.1&&end.y>-1.4){ load.water=Math.min(1,load.water+dt*0.8);
           const w=load.mesh.getObjectByName('water'); if(w){w.visible=true;w.position.y=-0.3+load.water*0.5;}
@@ -840,7 +917,6 @@ function animate(){ requestAnimationFrame(animate);
   updateFire(dt,t); updateSplash(dt);
   if(autoCycle)tod=(tod+dt*(24/600))%24;
   updateWeather(dt,t); applyTod();
-  /* missione */
   if(game.state==='fly'&&heli){ game.elapsed+=dt; let objTxt=''; const m=game.mission;
     if(m.type==='rings'){
       if(game.ringIdx<rings.length){ const r=rings[game.ringIdx],d=heli.position.distanceTo(r.center);
@@ -854,12 +930,12 @@ function animate(){ requestAnimationFrame(animate);
     } else if(m.type==='cargo'){
       if(!load||!load.attached){ const cp=crateMesh?crateMesh.position:new THREE.Vector3(m.crate[0],0,m.crate[1]);
         const d=Math.hypot(heli.position.x-cp.x,heli.position.z-cp.z);
-        objTxt=`🪝 AGGANCIA CASSA — ${d.toFixed(0)} m (cavo ${cableLen.toFixed(1)} m, G per agganciare)`;
+        objTxt=`🪝 AGGANCIA CASSA — ${d.toFixed(0)} m (cavo ${cableLen.toFixed(1)} m, G)`;
       } else { const d=Math.hypot(heli.position.x-m.target[0],heli.position.z-m.target[1]);
-        objTxt=`📦 CONSEGNA SU LZ BRAVO — ${d.toFixed(0)} m (G per rilasciare < 6 m)`; }
+        objTxt=`📦 CONSEGNA SU LZ BRAVO — ${d.toFixed(0)} m (G < 6 m)`; }
     } else if(m.type==='fire'){
       if(fire&&fire.health>0){ if(load&&load.water<1){ const d=Math.hypot(heli.position.x-LAKE.x,heli.position.z-LAKE.y);
-          objTxt=`💧 RIFORNISSI AL LAGO — ${d.toFixed(0)} m (cavo in acqua: ${Math.round(load.water*100)}%)`; }
+          objTxt=`💧 RIFORNIMENTO AL LAGO — ${d.toFixed(0)} m (${Math.round(load.water*100)}%)`; }
         else { const d=Math.hypot(heli.position.x-fire.x,heli.position.z-fire.z);
           objTxt=`🔥 SORVOLA IL ROGO E SGANCIA (H) — ${d.toFixed(0)} m`; } }
       else { const [lx,lz]=m.land,d=Math.hypot(heli.position.x-lx,heli.position.z-lz);
