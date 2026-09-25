@@ -209,8 +209,9 @@ const HANGAR=new THREE.Vector2(26,-22);
 /* D14: frame ruotato dell'hangar per keepOut rettangolare */
 const HANGAR_RY=Math.atan2(-26,22);
 const HANGAR_COS=Math.cos(HANGAR_RY), HANGAR_SIN=Math.sin(HANGAR_RY);
-const OFFICE=new THREE.Vector2(46,-30);
-const OFFICE_RY=Math.atan2(-46,30);
+/* D15 */
+const OFFICE=new THREE.Vector2(44,-16);
+const OFFICE_RY=Math.atan2(-44,16);
 function n2(x,z){ return Math.sin(x*0.045)*Math.cos(z*0.05)+0.5*Math.sin(x*0.11+1.7)*Math.cos(z*0.09+0.4)+0.25*Math.sin(x*0.23+z*0.19); }
 function baseTerrain(x,z){
   const d=Math.hypot(x,z); let f=smooth(d,22,50);
@@ -291,13 +292,14 @@ function hangarSignTexture(){
   g.fillText('HANGAR 1',256,50);
   const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t;
 }
-/* D14: insegna per l'edificio officine */
+/* D15: insegna per l'edificio officine */
 function officesSignTexture(){
-  const c=document.createElement('canvas'); c.width=512; c.height=96;
+  const c=document.createElement('canvas'); c.width=1024; c.height=192;
   const g=c.getContext('2d');
-  g.fillStyle='#2f3540'; g.fillRect(0,0,512,96);
-  g.fillStyle='#e8e4d8'; g.font='bold 54px Arial'; g.textAlign='center'; g.textBaseline='middle';
-  g.fillText('OFFICINE',256,50);
+  g.fillStyle='#22303c'; g.fillRect(0,0,1024,192);
+  g.fillStyle='#f2c94c'; g.fillRect(0,0,1024,10); g.fillRect(0,182,1024,10);
+  g.fillStyle='#e8e4d8'; g.font='bold 88px Arial'; g.textAlign='center'; g.textBaseline='middle';
+  g.fillText('OFFICINE AEROPORTO',512,100);
   const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t;
 }
 function addHangarFront(parent,S){
@@ -940,15 +942,15 @@ async function loadKenneyOffices(){
     const gltf=await loader.loadAsync(f.download_url);
     const root=gltf.scene;
     _b.setFromObject(root); const sz=_b.getSize(new THREE.Vector3());
-    const s=22/Math.max(sz.x,sz.z);
-    root.scale.set(s, s*0.7, s);
+    const s=16/Math.max(sz.x,sz.z);
+    root.scale.set(s, s*0.85, s);
     _b.setFromObject(root); const c2=_b.getCenter(new THREE.Vector3());
     root.position.set(-c2.x,-_b.min.y,-c2.z);
     root.traverse(o=>{
       if(o.isMesh){
         const m=o.material.clone();
-        if(m.color) m.color.lerp(new THREE.Color(0x8a9098),0.45);
-        m.roughness=0.85; m.metalness=0.05;
+        if(m.color) m.color.lerp(new THREE.Color(0xbfc6cd),0.65);
+        m.roughness=0.8; m.metalness=0.05;
         o.material=m; o.castShadow=true; o.receiveShadow=true;
       }
     });
@@ -958,13 +960,63 @@ async function loadKenneyOffices(){
     scene.add(holder);
     _b.setFromObject(root);
     const S=_b.getSize(new THREE.Vector3());
-    const door=new THREE.Mesh(new THREE.PlaneGeometry(S.x*0.18,S.y*0.5),
-      new THREE.MeshStandardMaterial({color:0x39424e,roughness:0.55,metalness:0.2}));
-    door.position.set(0,S.y*0.28,S.z/2+0.05); holder.add(door);
-    const sign=new THREE.Mesh(new THREE.PlaneGeometry(8,1.5),
+    const zF=S.z/2;
+    const darkM=new THREE.MeshStandardMaterial({color:0x2f3540,roughness:0.55,metalness:0.2});
+    const glassM=new THREE.MeshPhysicalMaterial({color:0x14243a,roughness:0.08,metalness:0.3,transparent:true,opacity:0.85});
+    const trimM=new THREE.MeshStandardMaterial({color:0x8a9098,roughness:0.7});
+    const band=new THREE.Mesh(new THREE.BoxGeometry(S.x*1.02,0.8,S.z*1.02), darkM);
+    band.position.set(0,0.4,0); holder.add(band);
+    const parapet=new THREE.Mesh(new THREE.BoxGeometry(S.x*1.02,0.3,S.z*1.02), trimM);
+    parapet.position.set(0,S.y-0.12,0); holder.add(parapet);
+    for(let i=0;i<3;i++){
+      const acu=new THREE.Mesh(new THREE.BoxGeometry(1.6,0.7,1.2), trimM);
+      acu.position.set(-S.x*0.25+i*S.x*0.25, S.y+0.35, -S.z*0.15);
+      acu.castShadow=true; holder.add(acu);
+    }
+    const ant=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.08,3.2,6), trimM);
+    ant.position.set(S.x*0.4, S.y+1.6, -S.z*0.35); holder.add(ant);
+    const doorW=4.2, doorH=3.4;
+    const door=new THREE.Mesh(new THREE.PlaneGeometry(doorW,doorH), darkM);
+    door.position.set(0,doorH/2+0.1,zF+0.05); holder.add(door);
+    const leafM=new THREE.MeshStandardMaterial({map:doorLeafTexture(),roughness:0.6,metalness:0.15});
+    const leaf=new THREE.Mesh(new THREE.BoxGeometry(doorW/2,doorH,0.07), leafM);
+    leaf.position.set(-doorW/4, doorH/2+0.1, zF+0.1); holder.add(leaf);
+    const canopy=new THREE.Mesh(new THREE.BoxGeometry(doorW+2,0.16,1.4), trimM);
+    canopy.position.set(0,doorH+0.5,zF+0.7); canopy.castShadow=true; holder.add(canopy);
+    [-1,1].forEach(sx=>{
+      const col=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,doorH+0.4,8), trimM);
+      col.position.set(sx*(doorW/2+0.8),(doorH+0.4)/2,zF+1.2); holder.add(col);
+    });
+    [-1,1].forEach(sx=>{
+      const win=new THREE.Mesh(new THREE.PlaneGeometry(S.x*0.3,1.2), glassM);
+      win.position.set(sx*S.x*0.3, 2.6, zF+0.04); holder.add(win);
+    });
+    const sign=new THREE.Mesh(new THREE.PlaneGeometry(11,2.1),
       new THREE.MeshStandardMaterial({map:officesSignTexture(),roughness:0.7}));
-    sign.position.set(0,S.y*0.78,S.z/2+0.06); holder.add(sign);
-    log(`✓ Edificio Kenney come OFFICINE: ${f.name} (kit ${kitUsed})`,'ok');
+    sign.position.set(0, S.y-1.6, zF+0.07); holder.add(sign);
+    const apron=new THREE.Mesh(new THREE.PlaneGeometry(S.x*1.3, 9),
+      new THREE.MeshStandardMaterial({color:0x3c4046,roughness:.95}));
+    apron.rotation.x=-Math.PI/2; apron.position.set(0,0.05,zF+4.5); holder.add(apron);
+    const carFiles=await collectKitFiles('carkit_v1.4');
+    const park=[['sedan',-S.x*0.30,zF+4.5,0.15],['taxi',S.x*0.28,zF+4.5,-0.1]];
+    for(const [nm,px,pz,ry] of park){
+      const cf=carFiles.find(cf=>cf.name.replace(/\.glb$/i,'')===nm) || carFiles.find(cf=>new RegExp(nm).test(cf.name));
+      if(!cf) continue;
+      try{
+        const cg=await loader.loadAsync(cf.download_url);
+        const cr=cg.scene;
+        _b.setFromObject(cr); const sz0=_b.getSize(new THREE.Vector3());
+        const k=4.7/Math.max(sz0.x,sz0.z);
+        cr.scale.set(k,k*clamp(1.5/(sz0.y*k),0.55,1),k);
+        _b.setFromObject(cr); const cc=_b.getCenter(new THREE.Vector3());
+        cr.position.set(-cc.x,-_b.min.y,-cc.z);
+        cr.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
+        const ch=new THREE.Group(); ch.add(cr);
+        ch.position.set(px,0.06,pz); ch.rotation.y=ry;
+        holder.add(ch);
+      }catch(e){}
+    }
+    log(`✓ Edificio Kenney come OFFICINE: ${f.name} (kit ${kitUsed}) vestito`,'ok');
   }catch(e){ log('ℹ Edificio Kenney non caricabile','warn'); }
 }
 function buildFallbackTreesRocks(){
