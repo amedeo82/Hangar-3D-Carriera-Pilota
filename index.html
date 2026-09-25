@@ -161,6 +161,8 @@ renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.outputColorSpace=THREE.SRGBColorSpace;
 document.getElementById('app').appendChild(renderer.domElement);
 const scene=new THREE.Scene(); scene.fog=new THREE.Fog(0xd4e3ee,120,520);
+/* D15: anisotropia massima disponibile: le insegne (testo) restano leggibili anche viste molto di taglio */
+const MAX_ANISO=renderer.capabilities.getMaxAnisotropy();
 scene.environment=new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(),0.04).texture;
 const camera=new THREE.PerspectiveCamera(50,innerWidth/innerHeight,0.1,2000); camera.position.set(24,12,26);
 const controls=new OrbitControls(camera,renderer.domElement);
@@ -209,9 +211,18 @@ const HANGAR=new THREE.Vector2(26,-22);
 /* D14: frame ruotato dell'hangar per keepOut rettangolare */
 const HANGAR_RY=Math.atan2(-26,22);
 const HANGAR_COS=Math.cos(HANGAR_RY), HANGAR_SIN=Math.sin(HANGAR_RY);
-/* D15 */
-const OFFICE=new THREE.Vector2(44,-16);
-const OFFICE_RY=Math.atan2(-44,16);
+/* D15: officine spostate FUORI dall'hangar. Prima: (44,-16) con rotazione atan2(-44,16) →
+   l'edificio 16x16 finiva dentro il volume dell'hangar (centri a 19 m: angoli dentro le pareti).
+   Ora: (46,24), lato nord della pista, ~38 m dal muro hangar e ~20 m dall'asse pista.
+   Controlli fatti sul footprint ruotato (edificio + piazzetta/auto): fuori dal volume hangar,
+   fuori dalla fascia asfalto |z|<9, >17 m dal fuoco (50,40), >50 m dalle piazzole elicotteri. */
+const OFFICE=new THREE.Vector2(46,24);
+/* D15: la facciata dell'edificio deve dare sulla pista (vettore da OFFICE verso il centro pista (40,0));
+   con la convenzione usata dal codice (facciata locale = +Z) l'angolo è atan2(dx,dz) */
+const OFFICE_FACE=Math.atan2(40-OFFICE.x, 0-OFFICE.y);
+const OFFICE_COS=Math.cos(OFFICE_FACE), OFFICE_SIN=Math.sin(OFFICE_FACE);
+/* espressioni equivalenti (tenute per chiarezza): atan2(dz,dx)-PI/2 = atan2(-dx,-dz)+PI/2 */
+const OFFICE_RY=OFFICE_FACE;
 function n2(x,z){ return Math.sin(x*0.045)*Math.cos(z*0.05)+0.5*Math.sin(x*0.11+1.7)*Math.cos(z*0.09+0.4)+0.25*Math.sin(x*0.23+z*0.19); }
 function baseTerrain(x,z){
   const d=Math.hypot(x,z); let f=smooth(d,22,50);
@@ -224,24 +235,82 @@ function baseTerrain(x,z){
   return h;
 }
 const HANGAR_H=baseTerrain(HANGAR.x,HANGAR.y);
+/* D16: il "prato" davanti all'hangar ricopriva l'asfalto della pista. Due le cause:
+   1) i ciuffi d'erba (e la vegetazione Kenney) sono sparsi su un anello r∈[14,64] centrato
+      SULLA PIAZZOLA HELI IN (0,0): arrivano quindi fino a 78 m, cioè ben dentro la pista
+      (x -5..85, |z|<6) e dentro la piazzola in calcestruzzo dell'hangar (r17 in (26,-22));
+   2) il terreno sotto la pista non era piatto (noise ≠ 0), così tra i giunti dell'asfalto
+      (mesh a y=0.05) spellavano ciuffi e gobbe verdi.
+   Fix: (a) zona operative dichiarata UNA SOLA VOLTA (opsZone) e usata da terrainHeight /
+   groundAt / keepOut / spawn erba; (b) terreno appiattito a quota campo (PAD_FLAT) dentro
+   tale zona, con smusso esterno; (c) colore del terreno = colore asfalto/cemento dentro le
+   superfici dure, così anche in pianta non si vede più "verde" sulla pista. */
+const PAD_FLAT=0.02, FLARE=13;
+const C_ASPHALT='#34393f', C_CONCRETE='#3c4046';
+function rxAbs(x,cx,hx,z,cz,hz){ return Math.abs(x-cx)<=hx && Math.abs(z-cz)<=hz; }
+/* pad>0 = fascia di rispetto (margine) aggiunta attorno alle superfici dure */
+function opsZone(x,z,pad){
+  const H=pad*0.5;
+  if(rxAbs(x,40,45+H,z,0,6+H)) return 'runway';                       /* asfalto 90x12   */
+  if(rxAbs(x,5,35+H,z,0,14+H)) return 'apron';                        /* apron 70x28     */
+  if(rxAbs(x,HANGAR.x,13+H,z,HANGAR.y,9+H)) return 'hpad';            /* sedime hangar (rettangolo ruotato sotto) */
+  if(Math.hypot(x,z)<=10+H) return 'helipad';
+  if(Math.hypot(x-60,z+40)<=10+H) return 'helipad';
+  return null;
+}
+/* piazzola in calcestruzzo dell'hangar: cerchio r17 nel frame RUOTATO dell'edificio
+   (un cerchio ad asse allineato avrebbe mangiato il prato davanti alla porta, D16) */
+function onHangarPad(x,z,pad){
+  const dx=x-HANGAR.x, dz=z-HANGAR.y;
+  const lx= dx*HANGAR_COS + dz*HANGAR_SIN, lz= -dx*HANGAR_SIN + dz*HANGAR_COS;
+  return Math.hypot(lx,lz)<=17+(pad?pad*0.5:0);
+}
+function isHard(x,z,pad){ return opsZone(x,z,pad)!==null; }
 function terrainHeight(x,z){
   let h=baseTerrain(x,z);
   const dH=Math.hypot(x-HANGAR.x,z-HANGAR.y);
   if(dH<22) h=THREE.MathUtils.lerp(HANGAR_H,h,smooth(dH,15,22));
+  /* D16: plateau a quota campo dentro l'area operativa (piazzole + corridoi di rullaggio).
+     Il deflusso è un anello continuo attorno al sedime: il gradino max su una cella della mesh
+     (6.4 m) resta < 1 m, quindi niente "scogliere" verdi a bordo pista. */
+  if(isHard(x,z,0)||onHangarPad(x,z,0)) return PAD_FLAT;
+  const e=edgeDist(x,z);                    /* deflusso a "spalla d'oca": mai sotto quota campo */
+  if(e<FLARE){ const k=smooth(e,FLARE*0.35,FLARE);
+    h=Math.max(PAD_FLAT,THREE.MathUtils.lerp(PAD_FLAT,h,k)); }
   return h;
 }
+/* distanza (cirdata, conservativa) dal bordo delle superfici dure: serve per lo smusso */
+function edgeDist(x,z){
+  let d=1e9;
+  const push=v=>{ if(v<d)d=v; };
+  push(Math.max(Math.abs(x-40)-45,Math.abs(z)-6));          /* pista   */
+  push(Math.max(Math.abs(x-5)-35,Math.abs(z)-14));          /* apron   */
+  push(Math.hypot(x,z)-10); push(Math.hypot(x-60,z+40)-10); /* eliporti*/
+  const dx=x-HANGAR.x, dz=z-HANGAR.y;                       /* hangar  */
+  const lx= dx*HANGAR_COS + dz*HANGAR_SIN, lz= -dx*HANGAR_SIN + dz*HANGAR_COS;
+  push(Math.max(Math.abs(lx)-13,Math.abs(lz)-9));
+  push(Math.hypot(lx,lz)-17);
+  return d;
+}
 function groundAt(x,z){
-  if(Math.hypot(x,z)<10.5) return 0.16;
-  if(Math.hypot(x-60,z+40)<10.5) return 0.16;
-  if(x>-6&&x<86&&Math.abs(z)<6) return 0.05;
-  if(x>-30&&x<40&&Math.abs(z)<14) return 0.02;
-  if(Math.hypot(x-HANGAR.x,z-HANGAR.y)<17) return HANGAR_H+0.12;
+  const o=opsZone(x,z,0);
+  if(o==='helipad') return 0.16;
+  if(o==='runway') return 0.05;
+  if(o==='apron'||o==='hpad') return 0.02;
+  if(onHangarPad(x,z,0)) return 0.02;
   return terrainHeight(x,z);
 }
 { const gGeo=new THREE.PlaneGeometry(900,900,140,140); gGeo.rotateX(-Math.PI/2); const p=gGeo.attributes.position; const cols=[];
   const cLow=new THREE.Color(PAL.groundLow),cHigh=new THREE.Color(PAL.groundHigh),tmp=new THREE.Color();
+  const cAsphalt=new THREE.Color(C_ASPHALT),cConcrete=new THREE.Color(C_CONCRETE),cRunway=new THREE.Color('#2c3138');
   for(let i=0;i<p.count;i++){ const x=p.getX(i),z=p.getZ(i),h=terrainHeight(x,z); p.setY(i,h);
-    tmp.copy(cLow).lerp(cHigh,clamp(h/5,0,1)*0.75+0.14*Math.sin(x*0.2)*Math.cos(z*0.2)); cols.push(tmp.r,tmp.g,tmp.b); }
+    const o=opsZone(x,z,0.6), hp=onHangarPad(x,z,0.6);   /* +margine: niente aloni verdi ai bordi */
+    if(o||hp){ tmp.copy(o==='runway'?cRunway:cConcrete);
+               tmp.offsetHSL(0,0,(Math.sin(x*1.7)*Math.cos(z*1.3))*0.012); }
+    else { tmp.copy(cLow).lerp(cHigh,clamp(h/5,0,1)*0.75+0.14*Math.sin(x*0.2)*Math.cos(z*0.2));
+           const e=edgeDist(x,z);                          /* sfumatura erba → cemento */
+           if(e<6){ const k=1-smooth(e,0.5,6); tmp.lerp(cConcrete,k*0.85); } }
+    cols.push(tmp.r,tmp.g,tmp.b); }
   gGeo.setAttribute('color',new THREE.Float32BufferAttribute(cols,3)); gGeo.computeVertexNormals();
   const ground=new THREE.Mesh(gGeo,new THREE.MeshStandardMaterial({vertexColors:true,roughness:1})); ground.receiveShadow=true; scene.add(ground); }
 const lakeMesh=new THREE.Mesh(new THREE.CircleGeometry(20,40),new THREE.MeshPhysicalMaterial({color:0x274f63,roughness:0.12,metalness:0.5}));
@@ -292,15 +361,27 @@ function hangarSignTexture(){
   g.fillText('HANGAR 1',256,50);
   const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t;
 }
-/* D15: insegna per l'edificio officine */
+/* D15: insegna per l'edificio officine — resa ad ALTA risoluzione (2048px) perché
+   l'insegna è grande e va letta da lontano, dalla pista */
 function officesSignTexture(){
-  const c=document.createElement('canvas'); c.width=1024; c.height=192;
+  const c=document.createElement('canvas'); c.width=2048; c.height=384;
   const g=c.getContext('2d');
-  g.fillStyle='#22303c'; g.fillRect(0,0,1024,192);
-  g.fillStyle='#f2c94c'; g.fillRect(0,0,1024,10); g.fillRect(0,182,1024,10);
-  g.fillStyle='#e8e4d8'; g.font='bold 88px Arial'; g.textAlign='center'; g.textBaseline='middle';
-  g.fillText('OFFICINE AEROPORTO',512,100);
-  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t;
+  g.fillStyle='#22303c'; g.fillRect(0,0,2048,384);
+  g.fillStyle='#f2c94c'; g.fillRect(0,0,2048,20); g.fillRect(0,364,2048,20);
+  g.strokeStyle='rgba(232,228,216,.35)'; g.lineWidth=4;
+  g.strokeRect(18,32,2012,320);
+  /* testo chiaro su fondo scuro + ombra morbida = massimo contrasto/leggibilità */
+  g.font='bold 178px Arial'; g.textAlign='center'; g.textBaseline='middle';
+  g.shadowColor='rgba(0,0,0,.55)'; g.shadowBlur=16; g.shadowOffsetY=5;
+  g.fillStyle='#ffffff'; g.fillText('OFFICINE AEROPORTO',1024,196);
+  g.shadowBlur=0; g.shadowOffsetY=0;
+  const t=new THREE.CanvasTexture(c);
+  t.colorSpace=THREE.SRGBColorSpace;
+  t.anisotropy=MAX_ANISO;              /* la scritta resta leggibile anche molto obliqua */
+  t.minFilter=THREE.LinearMipmapLinearFilter;
+  t.magFilter=THREE.LinearFilter;
+  t.generateMipmaps=true;
+  return t;
 }
 function addHangarFront(parent,S){
   const W=S.x*0.55, H0=S.y*0.55, zF=S.z/2;
@@ -387,13 +468,16 @@ function makeGrassTuftGeometry(){
   g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
   g.setIndex(idx); g.computeVertexNormals(); return g;
 }
-{ const GC=2200;
+{ const GC=2600;                      /* +400 ciuffi: sostituiscono il prato che ricopriva l'asfalto */
   const grassMat=new THREE.MeshStandardMaterial({vertexColors:true,roughness:1,side:THREE.DoubleSide});
   patchWind(grassMat,0.5,0.04,0.5);
   const grass=new THREE.InstancedMesh(makeGrassTuftGeometry(),grassMat,GC);
   const d=new THREE.Object3D(), col=new THREE.Color(); let p2=0,g2=0;
-  while(p2<GC&&g2++<40000){
-    const a=Math.random()*6.283, r=14+Math.random()*50, x=Math.cos(a)*r, z=Math.sin(a)*r;
+  /* D16: prima l'anello di spawn era r∈[14,64] centrato in (0,0) → arrivava a 78 m, dentro la
+     pista. Ora si spara sull'area verde attorno all'aeroporto (centro campo ~ (25,-5)) e i
+     punti su asfalto/piazzole vengono scartati da keepOut. */
+  while(p2<GC&&g2++<60000){
+    const a=Math.random()*6.283, r=18+Math.random()*58, x=25+Math.cos(a)*r, z=-5+Math.sin(a)*r;
     if(keepOut(x,z))continue;
     if(n2(x*0.09+31,z*0.09-7)+0.45*n2(x*0.23-3,z*0.23+11)<0.05)continue;
     d.position.set(x,terrainHeight(x,z)-0.02,z); d.rotation.set(0,Math.random()*Math.PI,0);
@@ -711,11 +795,12 @@ function recolorGeometry(geo,mode,seed){
   }
   ca.needsUpdate=true;
 }
-/* D14: keepOut con rettangolo ruotato sul frame hangar + zona officine */
+/* D14/D15/D16: keepOut = zona hangar (rettangolo ruotato) + zona officine (rettangolo ruotato)
+   + laghetto/rogo + TUTTE le superfici asfaltate (pista, apron, piazzole): è l'unica funzione
+   che decide dove la vegetazione NON può crescere, quindi il prato non ricopre più l'asfalto. */
 function keepOut(x,z){
   if(Math.hypot(x,z)<16)return true;
-  if(x>-20&&x<90&&Math.abs(z)<9)return true;
-  if(x>-30&&x<40&&Math.abs(z)<14)return true;
+  if(isHard(x,z,0)||onHangarPad(x,z,0))return true;      /* nessuna pianta su asfalto/cemento */
   if(Math.hypot(x-LAKE.x,z-LAKE.y)<26)return true;
   if(Math.hypot(x-60,z+40)<20)return true;
   if(Math.hypot(x-FIREPOS.x,z-FIREPOS.y)<18)return true;
@@ -723,7 +808,10 @@ function keepOut(x,z){
   const lx= dx*HANGAR_COS + dz*HANGAR_SIN;
   const lz= -dx*HANGAR_SIN + dz*HANGAR_COS;
   if(Math.abs(lx)<17 && Math.abs(lz)<14) return true;
-  if(Math.hypot(x-OFFICE.x,z-OFFICE.y)<14) return true;
+  { const ox=x-OFFICE.x, oz=z-OFFICE.y;                       /* zona OFFICINE: frame proprio */
+    const qx= ox*OFFICE_COS + oz*OFFICE_SIN;
+    const qz= -ox*OFFICE_SIN + oz*OFFICE_COS;
+    if(Math.abs(qx)<15 && Math.abs(qz)<15) return true; }
   return false;
 }
 function instanciateGeo(geo,count,opts,seed){
@@ -991,9 +1079,21 @@ async function loadKenneyOffices(){
       const win=new THREE.Mesh(new THREE.PlaneGeometry(S.x*0.3,1.2), glassM);
       win.position.set(sx*S.x*0.3, 2.6, zF+0.04); holder.add(win);
     });
-    const sign=new THREE.Mesh(new THREE.PlaneGeometry(11,2.1),
-      new THREE.MeshStandardMaterial({map:officesSignTexture(),roughness:0.7}));
-    sign.position.set(0, S.y-1.6, zF+0.07); holder.add(sign);
+    /* D15: insegna OFFICINE — sul lato che dà sulla pista (facciata locale +Z, già ruotata
+       verso la runway da OFFICE_RY). Piano doppio (avanti/retro) così resta leggibile anche
+       controluce, larga quasi quanto l'edificio e con testo ad alta risoluzione */
+    const signGeo=new THREE.PlaneGeometry(14,2.6);
+    const texF=officesSignTexture(), texB=officesSignTexture();   /* speculare sul retro */
+    texB.wrapS=THREE.RepeatWrapping; texB.repeat.x=-1; texB.needsUpdate=true;
+    const sign=new THREE.Mesh(signGeo,
+      new THREE.MeshStandardMaterial({map:texF,roughness:0.7,side:THREE.DoubleSide}));
+    sign.position.set(0, S.y-1.35, zF+0.10); holder.add(sign);
+    const signBack=new THREE.Mesh(signGeo,
+      new THREE.MeshStandardMaterial({map:texB,roughness:0.7,side:THREE.DoubleSide}));
+    signBack.rotation.y=Math.PI; signBack.position.set(0, S.y-1.35, zF+0.06); holder.add(signBack);
+    const board=new THREE.Mesh(new THREE.BoxGeometry(14.6,3.1,0.22),
+      new THREE.MeshStandardMaterial({color:0x1b2733,roughness:0.8}));
+    board.position.set(0, S.y-1.35, zF-0.02); board.castShadow=true; holder.add(board);
     const apron=new THREE.Mesh(new THREE.PlaneGeometry(S.x*1.3, 9),
       new THREE.MeshStandardMaterial({color:0x3c4046,roughness:.95}));
     apron.rotation.x=-Math.PI/2; apron.position.set(0,0.05,zF+4.5); holder.add(apron);
@@ -1269,7 +1369,10 @@ function drawMap(){ const w=mapCv.width,h=mapCv.height,s=w/210,cx=30,cz=-12;
   [[0,0],[60,-40]].forEach(([x,z])=>{const [mx,my]=P(x,z);mapCtx.fillStyle='#f2c94c';mapCtx.beginPath();mapCtx.arc(mx,my,10*s+2,0,6.29);mapCtx.fill();});
   mapCtx.fillStyle='#565c54';
   { const [mx,my]=P(HANGAR.x,HANGAR.y); mapCtx.save(); mapCtx.translate(mx,my); mapCtx.rotate(HANGAR_RY); mapCtx.fillRect(-4,-3,8,6); mapCtx.restore(); }
-  { const [mx,my]=P(OFFICE.x,OFFICE.y); mapCtx.save(); mapCtx.translate(mx,my); mapCtx.rotate(OFFICE_RY); mapCtx.fillRect(-3,-2,6,4); mapCtx.restore(); }
+  { const [mx,my]=P(OFFICE.x,OFFICE.y); mapCtx.save(); mapCtx.translate(mx,my); mapCtx.rotate(OFFICE_RY);
+    mapCtx.fillStyle='#565c54'; mapCtx.fillRect(-3,-2,6,4);
+    /* D15: tacca gialla = lato dell'edificio che dà sulla pista (facciata +Z → -y in mappa) */
+    mapCtx.fillStyle='#f2c94c'; mapCtx.fillRect(-2.6,-2.8,5.2,1.1); mapCtx.restore(); }
   if(fire&&fire.health>0){const [mx,my]=P(fire.x,fire.z);mapCtx.fillStyle='#ff5522';mapCtx.beginPath();mapCtx.arc(mx,my,4,0,6.29);mapCtx.fill();}
   if(crateMesh){const [mx,my]=P(crateMesh.position.x,crateMesh.position.z);mapCtx.fillStyle='#c58f4a';mapCtx.fillRect(mx-3,my-3,6,6);}
   rings.forEach((r,i)=>{const [mx,my]=P(r.center.x,r.center.z);
