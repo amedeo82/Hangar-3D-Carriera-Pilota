@@ -26,8 +26,9 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
-        with:
-          enablement: true
+        # NOTE: abilitare Pages in Settings → Pages una volta; dopo questo il deploy
+        # parte automaticamente. Il workflow non può abilitare Pages da solo perché
+        # il token GH non ha scope admin sul repo.
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
