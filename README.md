@@ -1,93 +1,307 @@
-# 🚁 Hangar 3D — Carriera Pilota
+# Hangar 3D — Simulatore-gioco di elicottero
 
-Stato dell'arte: **un unico file HTML autonomo** (Three.js r160 via CDN, nessun build step) che contiene un simulatore-gioco di elicottero passeggeri guidabile da tastiera, con modelli .glb reali scaricati in tempo reale, fisica aerodinamica didattica, missioni con punteggio e mondo ambientale completo.
+Un simulatore di elicottero passeggeri **completamente in un singolo file HTML**, scritto in Three.js r160 via CDN. Nessun build step, nessuna installazione: si apre `index.html` in un browser moderno e si vola.
 
----
-
-## 1. Pipeline modelli 3D (.glb)
-
-- **Download live con fallback a cascata**: il gioco prova in ordine Quaternius *Helicopter* (CDN market.pmnd.rs, stile videogioco) → `helicopter.glb` da GitHub (srcejon/sdrangel-3d-models) → **H135 procedurale costruito in codice** (fusoliera estrusa da profilo bezier, cupolino in vetro, fenestron a 9 pale, 4 pale con profilo alare, swashplate, pattini, porte incernierate, luci di navigazione, beacon).
-- **Normalizzazione automatica** di scala, appoggio al suolo e **prua** (il naso viene allineato a −X usando la posizione del rotore rispetto al baricentro: evita comandi invertiti su qualsiasi file).
-- **Rilevamento automatico dei rotori** (per nome nodo o per geometria "sottile e larga", con risalita al pivot che raggruppa le pale) per agganciare rotazione, dischi di sfocatura e ombre.
-- **Clip animate incorporate** nei .glb gestite con `AnimationMixer` la cui velocità è legata al regime motore (`timeScale = rpm`): motore spento = animazioni ferme.
-- Supporto DRACO, ombre proiettate, materiali PBR con environment map.
-
-## 2. Modello di volo e aerodinamica (Fase B)
-
-- **Canale verticale fisico**: portanza = f(regime², collettivo) vs peso, con integrazione della velocità verticale (V/S reale, niente quote target).
-- **Effetto suolo (IGE)**: +22% portanza sotto ~4,5 m; uscita dal cuscino d'aria con affondamento didattico.
-- **Translational lift (ETL)**: +16% portanza sopra ~5 m/s.
-- **Vortex Ring State (VRS)**: affondata con perdita di portanza fino al 60% se scendi rapido a bassa velocità, con vibrazione forte, allarme e recupero reale (guadagnare velocità).
-- **Stallo della pala retrocedente** oltre ~18 m/s con vibrazioni e perdita di portanza.
-- **HOLD QUOTA** (SPACE): autopilota di quota con trim automatico a autorità limitata e discesa automatica rate-limitata (~1,3 m/s) per touchdown morbidi; in VRS profondo non compensa (resta la tua emergenza).
-- **Volo manuale** completo: ciclico longitudinale/laterale con assetto concorde (naso giù in accelerazione, rollio in deriva), pedali con imbardata smorzata, collettivo, auto-centraggio del ciclico per stabilità assistita.
-- **Regime motore**: spool-up/spool-down esponenziali, blur disc dei rotori ad alto regime, **autorotazione** se spegni il motore in volo.
-- **Ombra rotore solo vicino al suolo** (<1,5 m), disattivata in volo.
-- **Vibrazioni con firma per stato** (regime base, VRS, stallo) su camera e fusoliera.
-- Riga HUD aerodinamica live: `IGE ● / ETL ● / VRS ⚠ / STALL ⚠ / COLL REQ % / SET quota`.
-
-## 3. Comandi (tastiera + mouse + UI)
-
-| Input | Funzione |
-|---|---|
-| `W/S` o `↑/↓` | Ciclico longitudinale (avanti/indietro) |
-| `A/D` o `←/→` | Ciclico laterale (sinistra/destra) |
-| `Q/E` | Pedali (imbardata sinistra/destra) |
-| `R/F` | Collettivo (manual) o quota set (in HOLD) |
-| `SPAZIO` | Decollo / HOLD QUOTA on-off |
-| `M` | Avvio/spegnimento motore |
-| `P` | Porte |
-| `C` | Cycle camera (4 preset, 4ª = inseguimento) |
-| `U` | Audio sintetico on/off |
-| `1/2/3` | Preset giorno / tramonto / notte |
-| `O` | Ciclo giorno/notte automatico on/off |
-| `ESC` | Menu |
-| Mouse | Orbita, zoom, pan; slider collettivo/ciclici |
-
-## 4. Sistema gioco (Fase A)
-
-- **Menu carriera** con 3 missioni progressive + **volo libero**; best score per missione in `localStorage`.
-  1. *Primo volo* — circuito di 3 anelli + atterraggio su H.
-  2. *Rotta panoramica* — 4 anelli alti sopra la valle.
-  3. *LZ Bravo — precisione* — trasferimento con atterraggio centrato e V/S < 1 m/s su secondo eliporto dedicato.
-- **Anelli-checkpoint sequenziali** con beam luminoso, styling attivo/passato/futuro, bonus precisione (100 + fino a 50 pt).
-- **Atterraggio valutato**: bonus centro LZ (offset), bonus touchdown morbido, penalità contatto duro; rilevamento V/S al contatto.
-- **Punteggio** = anelli + atterraggio + bonus tempo sul "par"; **stelle 1-3** e schermata risultati con dettaglio punti, Riprova/Prossima/Menu.
-- **HUD di missione**: minimappa (eliporti, pista, anelli, velivolo orientato, nord), **bussola a nastro** con punti cardinali italiani, **freccia-guida 3D** sul muso, riga obiettivo con distanza, timer, telemetria (RPM, quota, V/S, IAS, prua, stato).
-- **Radio TORRE/ISTRUTTORE/ALLARME**: messaggi contestuali (briefing, anelli, rifiuti di decollo, coaching aerodinamico una-tantum, esiti) con fade automatico.
-
-## 5. Ambiente e atmosfera
-
-- **Terreno procedurale** collinare con vertex colors, zone spianate per eliporti e corridoio pista.
-- **Due eliporti** (H e LZ Bravo) con texture "H", pali faro; **pista in asfalto** con segnaletica e luci di bordo; taxiway; **hangar** con tetto curvo; barili carburante; **manica a vento animata** che reagisce anche al downwash quando le passi vicino basso.
-- **Ciclo giorno/notte completo**: sole che percorre il cielo (giorno in 10 min), cielo shader notte→tramonto→giorno, nebbia coordinata, **stelle e luna**, luce lunare fredda, luci artificiali che si accendono al buio, orologio e stato cielo in HUD.
-- **Catena montuosa** con cime innevate, **150 alberi istanziati** (2 draw call), **stormo di uccelli** con flap, **nuvole sprite** alla deriva.
-- **Rotor wash / downwash**: sistema particellare GPU (shader custom con alpha e size per particella) che solleva polvere radiale sotto ~8 m.
-- Ombre PCF soft, tone mapping ACES, environment PBR.
-
-## 6. Audio
-
-- **Motore sintetico WebAudio**: noise browniano filtrato + saw, chop modulato alla frequenza pale, legato a RPM; si "sporca" in VRS. Avviabile solo su gesto utente (policy browser).
-
-## 7. Robustezza e UX
-
-- Pannello log con esito di ogni download e delle normalizzazioni applicate.
-- Gestione graceful di rete/CORS assenti (fallback procedurale).
-- Prevenzione scroll su Space/frecce, blur automatico degli slider alla pressione tasti, resize handling, camera shake compatibile con OrbitControls.
+> Stato: **Fase D17** — sei missioni, gamepad, traffico taxiway, ombra in volo, LOD, lago riflettente, fanali veicoli, erba reattiva al downwash, beacon hangar, danni atterraggio, HUD vibrante in VRS, e molto altro.
 
 ---
 
-## Riepilogo in una frase per area
+## Indice
 
-| Area | Stato |
+1. [Avvio rapido](#avvio-rapido)
+2. [Screenshot](#screenshot)
+3. [Controlli](#controlli)
+4. [Mondo di gioco](#mondo-di-gioco)
+5. [Missioni](#missioni)
+6. [Fisica di volo](#fisica-di-volo)
+7. [Struttura del codice](#struttura-del-codice)
+8. [Roadmap delle fasi](#roadmap-delle-fasi)
+9. [Cosa resta da fare](#cosa resta-da-fare)
+
+---
+
+## Avvio rapido
+
+```bash
+# server statico (consigliato per la cache dei modelli GLB)
+python3 -m http.server 8123
+# poi apri:  http://localhost:8123/index.html
+```
+
+In alternativa, doppio click su `index.html` — funziona ma il browser potrebbe bloccare i fetch CORS verso GitHub per i modelli.
+
+**Requisiti:** browser con WebGL 2 (Chrome/Edge/Firefox/Safari recenti), Three.js r160 caricato da CDN (jsDelivr). Gamepad opzionale.
+
+---
+
+## Screenshot
+
+### Menu missioni (6 missioni, progressione 2★)
+
+![Menu missioni](docs/images/01_menu_missioni.png)
+
+*Missioni 4 e 5 sono bloccate finché non si totalizzano 2 stelle nella missione 3. La missione 6 "Tour aeroporto" è libera.*
+
+### Vista del campo (eliporto H, hangar, pista)
+
+![Campo 3D](docs/images/02_campo_3d.png)
+
+*Elicottero centrato sull'H, prua allineata all'asse, manica a vento, siepi, veicoli e pista "27" con designatore.*
+
+### Hangar con antenne e faro rosso lampeggiante
+
+![Hangar con antenne](docs/images/03_hangar_antenne.png)
+
+*Dettaglio del tetto del hangar procedurale: due antenne, cella ripetitore e faro rosso che lampeggia a ~1 Hz.*
+
+### Notte + pioggia
+
+![Notte pioggia](docs/images/04_notte_pioggia.png)
+
+*Cielo stellato, lampioni della pista, fanali del taxi car attivi, terreno "bagnato" con specular, HUD con indicatore allarmi.*
+
+### Pista con lampioni
+
+![Pista e lampioni](docs/images/05_pista_lampioni.png)
+
+*Il runway con segnaletica "27", soglia di touchdown, e due file di lampioni che si accendono di notte.*
+
+### Tramonto con Rayleigh e capriolo
+
+![Tramonto Rayleigh](docs/images/06_tramonto_dettaglio.png)
+
+*Colore del cielo con warm glow Rayleigh all'orizzonte; capriolo procedurale visibile tra gli alberi a sinistra dell'eliporto.*
+
+---
+
+## Controlli
+
+### Tastiera
+
+| Tasto | Azione |
 |---|---|
-| Modelli .glb + fallback procedurale | ✅ Completo |
-| Fisica elicotteristica didattica (IGE/ETL/VRS/stallo) | ✅ Completo |
-| Comandi tastiera/mouse + camera chase | ✅ Completo |
-| Missioni, punteggio, stelle, salvataggi | ✅ Completo |
-| HUD, minimappa, bussola, radio | ✅ Completo |
-| Giorno/notte, meteo base, paesaggio vivo | ✅ Completo |
-| Rotor wash polveroso + vibrazioni | ✅ Completo |
-| Verricello/gancio, HEMS, antincendio, meteo avanzato, vegetazione animata | ⏳ Fase C disponibile |
+| `M` | Avvia / spegni motore |
+| `Spazio` | HOLD quota / decollo automatico |
+| `R` / `F` | Collettivo su / giù (in HOLD: setpoint quota ± 6 m/s) |
+| `W` / `S` | Ciclico longitudinale (avanti / indietro) |
+| `A` / `D` | Ciclico laterale (sinistra / destra) |
+| `Q` / `E` | Pedali (yaw sinistra / destra) |
+| `C` | Cicla camere (5 preset, 4 = cockpit) |
+| `P` | Porte / sportello |
+| `G` | Aggancia / sgancia carico (verricello) |
+| `H` | Sgancia acqua (benna antincendio) |
+| `V` / `B` | Verricello estendi / ritira |
+| `1` / `2` / `3` | Ora del giorno: giorno / tramonto / notte |
+| `O` | Toggle ciclo automatico giorno/notte |
+| `J` | Cicla meteo (sereno, vento, pioggia, neve) |
+| `U` | Audio on/off |
+| `ESC` | Torna al menu |
 
-Se vuoi, il prossimo passo naturale è la **Fase C**: gancio baricentrico/verricello con carichi esterni e missioni HEMS o benna antincendio, erba/chiome animate dal vento e meteo dinamico (pioggia/neve/nebbia). Dimmi solo "procedi con la fase C" — oppure chiedimi un file unico aggiornato, una variante di bilanciamento, o documentazione tecnica separata.
+### Gamepad
+
+| Input | Mappato a |
+|---|---|
+| Stick sinistro Y | Collettivo (in HOLD: setpoint) |
+| Stick destro X/Y | Ciclco longitudinale / laterale |
+| Trigger LT/RT (6,7) | Pedali Q / E |
+| A (0) | Avvia motore |
+| B (1) | HOLD quota |
+| X (2) | Porte |
+| Y (3) | Camera |
+| LB (4) | Audio |
+| Start (9) | Menu |
+
+### Mouse (OrbitControls)
+
+- Trascina per orbitare la camera
+- Scroll per zoom
+- Click su menu/pannelli
+
+---
+
+## Mondo di gioco
+
+Un eliporto alpino con:
+
+- **Eliporto H** centrale (0, 0) — H texture 1024 px, 4 fari, palo manica a vento a 14 m
+- **LZ Bravo** secondario a (60, −40) — usato come bersaglio nelle missioni cargo/HEMS
+- **Hangar procedurale** (26, −22) — box + cupola cilindrica, antenne e faro rosso lampeggiante
+- **Officine Kenney** (46, 24) — edificio car kit, ruotato keepOut, con tacca gialla sulla mappa
+- **Pista** orientata a 270° (27), lunghezza 92 m, larghezza 12, designatore + soglia touchdown + 16 lampioni
+- **Apron** 70×28, eliporto circolare h=17, con veicoli parcheggiati
+- **Lago** (−40, 30), 20 m raggio, acqua riflettente con normalMap animato
+- **Fiume** dal lago verso SE, TubeGeometry riflettente
+- **Rogo antincendio** (50, 40) — particles shader + PointLight pulsante, usato dalla missione 5
+- **Vegetazione Kenney** (alberi, cespugli, fiori) con LOD far forest r 120..200
+- **Stormo di uccelli** (procedurale o .glb Flamingo CC0) — animato in cielo con scie di condensa
+- **Taxi car** che looppa su 4 waypoint, con fari anteriori che si accendono di notte
+- **Nuvole** sprite-based che scorrono col vento
+- **Sole, luna, stelle** posizionati in base all'ora del giorno
+- **Overlay bagnato** che appare con la pioggia
+- **Siepi** lungo i bordi della taxiway
+
+### Atmosfera / ciclo giorno
+
+- 4 preset: `sereno`, `vento`, `pioggia`, `neve` (ciclabili con `J`)
+- Mix colore cielo in 3 stop: notte → tramonto → giorno
+- Fog color che segue il cielo
+- Sole e luna con sprite
+- Stellato visibile di notte
+- Auto-cycle 600s/giorno
+
+---
+
+## Missioni
+
+| # | Nome | Tipo | Par | Note |
+|---|---|---|---|---|
+| 1 | Primo volo | rings (3) | 110 s | Sempre disponibile |
+| 2 | Rotta panoramica | rings (4) | 140 s | Anelli sopra la valle |
+| 3 | LZ Bravo — precisione | rings (2) + landing | 160 s | Gate per missioni 4–5 |
+| 4 | Cargo HEMS — gancio 🔒 | cargo | 200 s | Richiede 2★ in missione 3 |
+| 5 | Antincendio — benna 🔒 | fire | 260 s | Richiede 2★ in missione 3 |
+| 6 | Tour aeroporto | tour (5) | 180 s | Waypoint panoramico sempre libero |
+
+Volo libero disponibile dal menu per esplorazione libera.
+
+### Punteggio
+
+- Anello attraversato: 100 pt + 50 pt bonus precisione
+- Atterraggio dolce (V/S < 1 m/s): +100 pt
+- Atterraggio duro (V/S > 2.5 m/s): −100 pt, "game.hard"
+- Tempo entro par: +2 pt/sec residuo
+- Cargo: 50 pt aggancio, 200+150 pt consegna
+- Antincendio: 50 pt rifornimento, 100 pt sgancio, 200 pt rogo spento
+
+### Stelle
+
+- ⭐ ≥ 40% del target
+- ⭐⭐ ≥ 66%
+- ⭐⭐⭐ = target pieno (o superato)
+
+Le stelle sono **persistenti** in `localStorage` (chiavi `heli3d_stars_<id>`).
+
+---
+
+## Fisica di volo
+
+Modello didattico a 6 gradi di libertà ridotti:
+
+- **Lift** = `rpm² · (collettivo) · fIGE · fETL · (1 − fVRS) · (1 − fSTALL) − load`
+- **V/S** (velocità verticale) integrata con damping `exp(-0.9 dt)`
+- **Forze X/Z** da ciclico + yaw, smussate esponenzialmente
+- **fIGE** (In Ground Effect) = 1 + 0.22·(1 − alt/9)² entro 9 m
+- **fETL** (Translational Lift) = 1 + 0.16·smooth(IAS, 3, 10)
+- **fVRS** (Vortex Ring State) = 0.6·smooth(−V/S, 1.5, 5)·(1−smooth(IAS,3,8))
+- **fSTALL** = 0.25·smooth(IAS, 16, 26)
+
+In **HOLD** mode (`Spazio`), un PID mantiene `alt ≈ setpoint` regolando il trim integrale.
+
+Allarmi radio attivi:
+- IGE lasciato: "serve più collettivo"
+- ETL acquisito: "puoi ridurre il collettivo"
+- VRS: "VORTEX RING STATE! Guadagna velocità (W)"
+- Stallo: "Stallo pala retrocedente: rallenta"
+
+---
+
+## Struttura del codice
+
+`index.html` (~1830 righe) è organizzato come:
+
+| Sezione | Righe circa | Contenuto |
+|---|---|---|
+| `<head>` + CSS | 1–290 | Stili pannelli, hud, menu, minimappa, bussole, gauge |
+| `<body>` HTML | 291–320 | Pannelli UI (topstrip, compass, dock, log, radio, menu, results) |
+| Costanti (LAKE, FIRE, HANGAR, OFFICE) | 322–335 | Posizioni mondo |
+| **Terreno + laghi + fiume + wet overlay** | 335–380 | Mesh `PlaneGeometry` con vertex colors + fiume + normalMap lago |
+| Hangar procedurale (con antenne/faro) | 487–510 | Box + cupola + antenne + faro rosso |
+| Manica a vento | 510–520 | Palo + sock con flutter aggiuntivo |
+| Montagne / picchi innevati | 512–530 | 26 coni con cappelli di neve |
+| Cespugli + erba + uccelli + fuoco + splash | 517–610 | Geometrie procedurali, particles shader, Nuvole |
+| `patchWind` (shader vento + downwash uniforms) | 206–240 | Modifica onBeforeCompile per InstancedMesh alberi |
+| Cielo, sole, luna, stelle, nubi | 800–950 | Sprite, shader cielo a 3 colori |
+| `applyTod` (ciclo giorno/notte) | 1493–1510 | Aggiorna colore cielo, nebbia, hemi, sole, GLOW; set `__nightK` |
+| Heliporti (con texture H) | 335–345 | CylinderGeometry con canvas texture |
+| **Pista + segnaletica + lampioni** | 349–365 | PlaneGeometry con canvas "27" + threshold + 16 lampioni |
+| **Apron + veicoli + siepi** | 357–370 | Plane + Kenney vehicles + hedges esterne |
+| Missioni + best score + stars | 1282–1335 | Array `MISSIONS`, `renderMenu`, gating |
+| `startMission` / `endMission` / `finish*` | 1351–1395 | Game loop missioni |
+| Verricello + benna + hook | 1396–1422 | Fisica del carico e dell'acqua |
+| Mini-mappa, bussola, gauge | 1424–1490 | Canvas 2D |
+| Input handlers (keydown, gamepad) | 1545–1642 | Mappatura tasti + gamepad poll |
+| **Miglioramenti D16** (heli shadow, taxi, LOD, tour) | 1555–1600 | |
+| **Miglioramenti D17** (lago, fari, downwash, beacon, danni, HUD VRS) | vari | |
+| `animate()` loop | 1644–1823 | Game loop: fisica, camera, render |
+
+---
+
+## Roadmap delle fasi
+
+| Fase | Contenuto |
+|---|---|
+| **A** | Scheletro 3D: terreno, hangar, eliporto, elicottero procedurale, camera chase |
+| **B** | Modello .glb reale, mixer animazioni, rotori con blur, fisica base |
+| **C** | Missioni rings, cargo, fire; verricello; benna; minimappa; bussola; ciclici collettivi; HUD |
+| **D1–D10** | Iterazioni bug-fix e miglioramenti visivi (illuminazione, nebbia, allarmi radio) |
+| **D11** | Kenney: nature (alberi, cespugli), vehicles (car kit), offices |
+| **D12** | Nature LOD + bird flock + sky shader + auto-cycle |
+| **D13** | Controlli PresetSlider, OrbitControls, Damping 3D |
+| **D14** | Hangar con cupola, OFFICE ruotato, runway centerline, keepOut hangar rettangolare |
+| **D15** | Minacce / waypoint indicator, OFFICE map tacca gialla |
+| **D16** | Progressione missioni 2★, gamepad, missione 6 "Tour", traffico taxi, heli shadow, LOD far forest |
+| **D17** | Lago riflettente, fanali notturni veicoli, erba reattiva downwash, beacon/faro hangar, vetri riflettenti, siepi, fiume, scie uccelli, danni atterraggio morbido, vibrazione HUD VRS, runway "27" + touchdown |
+| **D18** | Audio "blat" stallo, porte hangar interattive (si aprono entro 20 m), ombra nuvole sul terreno, atmosfera Rayleigh (warm glow al tramonto), cenere rogo, caprioli procedurali con path AI |
+
+---
+
+## Cosa resta da fare
+
+Proposte non ancora implementate (in ordine di complessità crescente):
+
+### XS
+- ❌ Pneumatici dei veicoli sterzati in curva
+- ❌ Specchietti retrovisori + tergicristalli sui veicoli Kenney
+- ❌ Ombra "soft contact" sotto ogni veicolo statico
+- ❌ LOD esteso a rocce/cespugli/fiori (solo alberi hanno LOD)
+
+### S
+- ❌ Più taxi cars (2–3) con frecce lampeggianti prima delle curve
+- ❌ Camion cisterna al lago per missione antincendio
+- ❌ Decal "impronta" su neve dopo atterraggio
+
+### M
+- ❌ Scioglimento neve bagnata su pista (decals canvas)
+- ❌ Polvere/cenere in volo vicino al rogo (cenere già presente, polvere no)
+
+### L
+- ❌ Neve cumulativa su cime e tetti con displacement
+- ❌ Sistema di danni completo (contatto duro → danni rotore, fumo persistente, fine missione)
+- ❌ Missione "Taxi a terra" con guida waypoint di un veicolo di terra
+
+---
+
+## Test
+
+I test automatici usano **Playwright + Chromium** con `--use-gl=swiftshader` per WebGL in headless. Verificano:
+
+- Modulo JS carica senza errori
+- Mission cards renderizzate (6, con 2 e 3 locked)
+- HUD telemetria aggiornata
+- Spool-up motore, IGE, decollo
+- Pannelli senza overlap
+- Scene contains: taxi car, heli shadow, hangar beacon, fari veicoli, hedges, fiume, wet overlay, water normalMap, LOD far trees
+- 0 NaN, 0 errori non-risorsa (eccetto atteso 404 su `assets/helicopter.glb`)
+
+---
+
+## Licenza
+
+Modelli `Kenney.nl` / `kenney.cc`: **CC0** (dominio pubblico).
+Modello elicottero `srcejon/sdrangel-3d-models`: controllare licenza del repo.
+Flamingo `three.js` examples: CC0.
+Three.js: MIT.
+
+---
+
+*Sviluppato in single-file architecture per facilitare distribuzione e ispezione. Nessun bundler, nessuna dipendenza installata localmente.*
