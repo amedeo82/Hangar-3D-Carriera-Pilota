@@ -72,6 +72,36 @@ In alternativa, doppio click su `index.html` — funziona ma il browser potrebbe
 
 *Colore del cielo con warm glow Rayleigh all'orizzonte; capriolo procedurale visibile tra gli alberi a sinistra dell'eliporto.*
 
+### Veicoli nell'apron
+
+![Veicoli apron](docs/images/07_apron_veicoli.png)
+
+*Il parcheggio aeroportuale: 6 veicoli Kenney (auto rossa, berlina, van bianco, autobus, mezzo antincendio, ambulanza) con vetri riflettenti `MeshPhysicalMaterial`, affianco al taxi car procedurale in movimento sulla taxiway. Lampioni, siepi e asfalto con overlay "bagnato" attivo.*
+
+### Veicoli nel mondo
+
+Il progetto ha **7 veicoli** totali, con due distinti sistemi di caricamento:
+
+| Veicolo | Tipo | Posizione | Note |
+|---|---|---|---|
+| Taxi car | Procedurale | Path loop [(-30,14)→(40,14)→(40,10)→(60,10)] | 2 `SpotLight` anteriori, attive solo di notte, ruote sterzate lungo il path |
+| Mezzo antincendio (fire) | Kenney GLB | (29, 10) | Luci rosse/blu animate dal rilevatore GLB esistente |
+| Ambulanza (amb) | Kenney GLB | (21, 6) | idem |
+| Autobus (bus) | Kenney GLB | (37, 6) | ruotato 1.2 rad |
+| Carro attrezzi (tow) | Kenney GLB | (10, 12) | |
+| Camion cisterna (fuel) | Kenney GLB | (-14, 9) | |
+| Furgone (van) | Kenney GLB | (-24, -6) | |
+
+**Veicoli Kenney (carkit_v1.4):** scaricati live da GitHub API. I materiali con `lum<0.2` (vetri) vengono automaticamente convertiti a `MeshPhysicalMaterial` con `transmission/roughness/envMap` per riflessi realistici. Le mesh piccole rosse/blu (<1 m) con luci già presenti nel modello lampeggiano in antifase; **nessuna geometria aggiunta** (D15).
+
+**Taxi car procedurale (D16):** costruito in `makeTaxiCar()` con `BoxGeometry`/`CylinderGeometry`. Ha:
+- Carrozzeria + cabina + vetro (`MeshPhysicalMaterial` riflettente)
+- 4 ruote cilindriche
+- Fari anteriori `SpotLight` con angolo π·0.22, intensità 4.5 × `__nightK`
+- Fanali posteriori rossi emissivi
+
+**Danni atterraggio morbido (D17):** V/S < −3 m/s → sbuffo di polvere `Points` marrone + shake camera + radio warning.
+
 ---
 
 ## Controlli
