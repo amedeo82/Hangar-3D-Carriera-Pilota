@@ -1244,9 +1244,74 @@ function buildProceduralFlock(){
   procFlock=new THREE.Group();
   const wg=new THREE.PlaneGeometry(1.4,0.45); wg.rotateX(-Math.PI/2); wg.translate(0.7,0,0);
   const mat=new THREE.MeshBasicMaterial({color:0x20242a,side:THREE.DoubleSide});
-  for(let i=0;i<6;i++){ const b=new THREE.Group(); const wl=new THREE.Mesh(wg,mat),wr=new THREE.Mesh(wg,mat); wr.rotation.y=Math.PI;
+    for(let i=0;i<6;i++){ const b=new THREE.Group(); const wl=new THREE.Mesh(wg,mat),wr=new THREE.Mesh(wg,mat); wr.rotation.y=Math.PI;
     b.add(wl,wr); b.userData={wl,wr,phase:Math.random()*6,r:30+Math.random()*30,h:25+Math.random()*15,sp:0.22+Math.random()*0.2,a0:Math.random()*6.28}; procFlock.add(b);}
   scene.add(procFlock);
+}
+/* D19: veicoli soccorso Grab3D CC0 (Cozy Vehicles Kit) — modelli GLB locali in assets/vehicles/.
+   Pattern mesh: <veicolo>_wheel_{fl,fr,rl,rr}_{1,2,3} (3 layer: tire/rim/accent), <veicolo>_body, <veicolo>_windows.
+   I beacon sono baked nella body texture, quindi aggiungo un piccolo flash overlay in posizione lightbar
+   per renderli visibili di notte (documentato come tale, non come "luce del modello"). */
+const grab3dVehicles=[]; /* array globale per animazione ruote/luci nell'animate loop */
+async function loadGrab3DVehicles(){
+  log('→ Load Grab3D vehicles…');
+  const list=[
+   {name:'fire-truck', file:'fire-truck.glb', pos:[29,10], ry:-0.4, lightbar:[0,1.7,0], anim:'static'},
+   {name:'ambulance',  file:'ambulance.glb',  pos:[5,7],   ry:Math.PI/2, lightbar:[0,1.6,0], anim:'static'},
+   {name:'police-car', file:'police-car.glb', pos:[-40,-25], ry:0, lightbar:[0,1.2,0.2], anim:'patrol'}
+  ];
+  for(const v of list){
+    try {
+      const g=await loader.loadAsync('assets/vehicles/'+v.file);
+      const grp=g.scene; grp.name=v.name;
+      /* normalizza scala: i modelli Grab3D sono a scala reale (~1.7 m larghezza, ~5 m lunghezza).
+         Adattiamo a 4.5 m lunghezza come gli altri veicoli del gioco. */
+      _b.setFromObject(grp); const sz=_b.getSize(new THREE.Vector3());
+      const longest=Math.max(sz.x,sz.z);
+      const k=longest>0?4.8/longest:1;
+      grp.scale.set(k,k,k);
+      _b.setFromObject(grp); const bb=_b.getSize(new THREE.Vector3());
+      const cc=_b.getCenter(new THREE.Vector3());
+      grp.position.set(-cc.x,-_b.min.y,-cc.z);
+      /* materiali: vetri scuri → MeshPhysicalMaterial riflettente (come Kenney) */
+      grp.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;
+        const m=o.material; if(m&&m.color){
+          const lum=(m.color.r+m.color.g+m.color.b)/3;
+          if(lum<0.25) o.material=new THREE.MeshPhysicalMaterial({map:m.map,color:m.color,roughness:0.08,metalness:0.2,transparent:true,opacity:0.7,envMapIntensity:1.0});
+          else if(/tire/i.test(o.material.name)) o.material=new THREE.MeshStandardMaterial({map:m.map,color:0x0a0a0a,roughness:0.95});
+        }}});
+      /* holder con posizione/rotazione */
+      const holder=new THREE.Group();
+      holder.add(grp);
+      const [px,pz]=v.pos; holder.position.set(px,terrainHeight(px,pz)+0.05,pz); holder.rotation.y=v.ry;
+      scene.add(holder);
+      /* animazione ruote: trova le 4 ruote principali (_1) e memorizza i pivot */
+      const wheels=[];
+      grp.traverse(o=>{ if(o.isMesh && /wheel_(fl|fr|rl|rr)_1$/i.test(o.name)) wheels.push(o); });
+      /* flash overlay sul lightbar (beacon visuale: modello Grab3D ha beacon baked in texture) */
+      const flRed=new THREE.Mesh(new THREE.SphereGeometry(0.14,10,8),new THREE.MeshStandardMaterial({color:0x880000,emissive:0xff2020,emissiveIntensity:0.4,transparent:true,opacity:0.95}));
+      const flBlue=new THREE.Mesh(new THREE.SphereGeometry(0.14,10,8),new THREE.MeshStandardMaterial({color:0x000088,emissive:0x2050ff,emissiveIntensity:0.4,transparent:true,opacity:0.95}));
+      grp.add(flRed); grp.add(flBlue);
+      const lb=v.lightbar; flRed.position.set(lb[0]-0.32,lb[1],lb[2]); flBlue.position.set(lb[0]+0.32,lb[1],lb[2]);
+      flashMats.push({m:flRed.material,phase:0},{m:flBlue.material,phase:Math.PI});
+      /* fari anteriori (SpotLight) attivi di notte come il taxi car */
+      for(const sgn of [-1,1]){
+        const sl=new THREE.SpotLight(0xfff0c8,0,16,Math.PI*0.22,0.5,1.5);
+        const fwdX=Math.cos(v.ry)*2.2, fwdZ=-Math.sin(v.ry)*2.2;
+        sl.position.set(fwdX, 0.8, fwdZ+sgn*0.6);
+        const tgt=new THREE.Object3D(); tgt.position.set(fwdX*4, 0.4, fwdZ*4+sgn*1.0);
+        holder.add(sl); holder.add(tgt); sl.target=tgt;
+      }
+      /* registra per animazione */
+      const rec={holder, wheels, kind:v.anim, t:0, speed:0, seg:0, path:null};
+      if(v.anim==='patrol'){ /* pattuglia police lungo perimetro apron */
+        rec.path=[[-40,-25],[-20,-30],[0,-30],[25,-30],[40,-25],[40,-15],[25,-10],[0,-10],[-25,-12]];
+        rec.speed=0.0015; rec.t=0; rec.seg=0;
+      }
+      grab3dVehicles.push(rec);
+      log(`✓ Grab3D ${v.name} (${wheels.length} ruote, lightbar overlay)`,'ok');
+    } catch(e){ log(`⚠ Grab3D ${v.name} non caricabile: ${e.message}`,'warn'); }
+  }
 }
 async function loadEnvironment(){
   buildProceduralFlock();
@@ -1255,6 +1320,7 @@ async function loadEnvironment(){
   if(!okNature) buildFallbackTreesRocks();
   await loadKenneyVehicles();
   await loadKenneyOffices();
+  await loadGrab3DVehicles();
 }
 function buildFire(x,z){ const grp=new THREE.Group(); grp.position.set(x,terrainHeight(x,z),z);
   const FN=220,fp=new Float32Array(FN*3),fa=new Float32Array(FN),fsz=new Float32Array(FN),fseed=new Float32Array(FN);
@@ -1334,7 +1400,10 @@ const MISSIONS=[
    rings:[],land:[0,0],lake:LAKE,fire:FIREPOS,landName:'Eliporto H'},
   {id:6,nome:'Tour aeroporto',par:180,type:'tour',
    brief:'Volo panoramico: 5 waypoint (hangar→officine→pista→lago→LZ Bravo), poi atterra su H.',
-   rings:[[26,-22,8],[46,24,10],[40,0,10],[-40,30,10],[60,-40,8]],land:[0,0],landName:'Eliporto H'}];
+   rings:[[26,-22,8],[46,24,10],[40,0,10],[-40,30,10],[60,-40,8]],land:[0,0],landName:'Eliporto H'},
+  {id:7,nome:'Servizio aeroportuale',par:200,type:'rings',req:3,
+   brief:'Vola verso la zona servizi (anello giallo 1,2,3,4) per ispezionare i mezzi di soccorso, poi atterra su H.',
+   rings:[[29,10,8],[5,7,8],[-40,-25,8],[46,24,8]],land:[0,0],landName:'Eliporto H'}];
 const game={state:'menu',mission:null,ringIdx:0,phase:0,score:0,elapsed:0,ringPts:0,landPts:0,timePts:0,hard:false,bonus:0,fills:0,dumps:0};
 const ringsGroup=new THREE.Group(); scene.add(ringsGroup); let rings=[];
 let guideArrow=null,crateMesh=null;
@@ -1907,6 +1976,24 @@ function animate(){ requestAnimationFrame(animate);
   pollGamepad();
   updateHeliShadow();
   updateTaxiTraffic(dt,t);
+  /* D19: animazione ruote + pattuglia police dei veicoli Grab3D */
+  grab3dVehicles.forEach(v=>{
+    if(v.kind==='patrol' && v.path){
+      v.t+=v.speed*dt*60; if(v.t>1){ v.t=0; v.seg=(v.seg+1)%v.path.length; }
+      const a=v.path[v.seg], b=v.path[(v.seg+1)%v.path.length];
+      const x=a[0]+(b[0]-a[0])*v.t, z=a[1]+(b[1]-a[1])*v.t;
+      const dx=b[0]-a[0], dz=b[1]-a[1];
+      v.holder.position.set(x, terrainHeight(x,z)+0.05, z);
+      v.holder.rotation.y=Math.atan2(dx,dz)+Math.PI/2;
+      v.speed=0.003+Math.abs(dx)+Math.abs(dz)>0?0.003:0;
+    }
+    /* ruote: rotazione X proporzionale al movimento (velocità stimata = 4 m/s per patrol) */
+    const wSpd = v.kind==='patrol'?8:0;
+    v.wheels.forEach(w=>{ w.rotation.x += wSpd*dt; });
+    /* fari accesi di notte */
+    const nk=window.__nightK||0;
+    v.holder.traverse(o=>{ if(o.isSpotLight) o.intensity=nk*4.5; });
+  });
   updateWaterNormal(t);
   updateContrails(dt);
   updateDustPuffs(dt);
