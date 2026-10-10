@@ -66,6 +66,12 @@ In alternativa, doppio click su `index.html` — funziona ma il browser potrebbe
 
 *Il runway con segnaletica "27", soglia di touchdown, e due file di lampioni che si accendono di notte.*
 
+### Tramonto con Rayleigh e capriolo
+
+![Tramonto Rayleigh](docs/images/06_tramonto_dettaglio.png)
+
+*Colore del cielo con warm glow Rayleigh all'orizzonte; capriolo procedurale visibile tra gli alberi a sinistra dell'eliporto.*
+
 ---
 
 ## Controlli
@@ -245,12 +251,13 @@ Allarmi radio attivi:
 | **D15** | Minacce / waypoint indicator, OFFICE map tacca gialla |
 | **D16** | Progressione missioni 2★, gamepad, missione 6 "Tour", traffico taxi, heli shadow, LOD far forest |
 | **D17** | Lago riflettente, fanali notturni veicoli, erba reattiva downwash, beacon/faro hangar, vetri riflettenti, siepi, fiume, scie uccelli, danni atterraggio morbido, vibrazione HUD VRS, runway "27" + touchdown |
+| **D18** | Audio "blat" stallo, porte hangar interattive (si aprono entro 20 m), ombra nuvole sul terreno, atmosfera Rayleigh (warm glow al tramonto), cenere rogo, caprioli procedurali con path AI |
 
 ---
 
 ## Cosa resta da fare
 
-Proposte D17 non ancora implementate (in ordine di complessità crescente):
+Proposte non ancora implementate (in ordine di complessità crescente):
 
 ### XS
 - ❌ Pneumatici dei veicoli sterzati in curva
@@ -260,20 +267,15 @@ Proposte D17 non ancora implementate (in ordine di complessità crescente):
 
 ### S
 - ❌ Più taxi cars (2–3) con frecce lampeggianti prima delle curve
-- ❌ Porte del garage officine che si aprono vicino al player
 - ❌ Camion cisterna al lago per missione antincendio
-- ❌ Audio "blat" in stallo (miglioramento)
 - ❌ Decal "impronta" su neve dopo atterraggio
 
 ### M
 - ❌ Scioglimento neve bagnata su pista (decals canvas)
-- ❌ Atmosfera Rayleigh (gradient `1/cos(θ)`)
-- ❌ Polvere/cenere in volo vicino al rogo
+- ❌ Polvere/cenere in volo vicino al rogo (cenere già presente, polvere no)
 
 ### L
 - ❌ Neve cumulativa su cime e tetti con displacement
-- ❌ Ombra delle nuvole proiettata sul terreno
-- ❌ Animali selvatici con AI path (caprioli, conigli)
 - ❌ Sistema di danni completo (contatto duro → danni rotore, fumo persistente, fine missione)
 - ❌ Missione "Taxi a terra" con guida waypoint di un veicolo di terra
 

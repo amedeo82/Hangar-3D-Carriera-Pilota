@@ -172,10 +172,21 @@ controls.enableDamping=true; controls.target.set(0,3,0); controls.maxPolarAngle=
 const hemi=new THREE.HemisphereLight(0xd6e8ff,0x40513e,1.0); scene.add(hemi);
 const sunLight=new THREE.DirectionalLight(0xfff1da,2.5); sunLight.position.set(80,110,50); sunLight.castShadow=true;
 sunLight.shadow.mapSize.set(2048,2048); Object.assign(sunLight.shadow.camera,{left:-45,right:45,top:45,bottom:-45,far:400}); sunLight.shadow.bias=-0.0004; scene.add(sunLight);
-const skyUni={cTop:{value:new THREE.Color(0x2f6ab8)},cMid:{value:new THREE.Color(0x9cc3e8)},cBot:{value:new THREE.Color(0xe3edf4)}};
+const skyUni={cTop:{value:new THREE.Color(0x2f6ab8)},cMid:{value:new THREE.Color(0x9cc3e8)},cBot:{value:new THREE.Color(0xe3edf4)},uSunY:{value:0.5},uSunWarm:{value:0}};
 scene.add(new THREE.Mesh(new THREE.SphereGeometry(900,32,16),new THREE.ShaderMaterial({side:THREE.BackSide,depthWrite:false,uniforms:skyUni,
  vertexShader:`varying vec3 vP; void main(){vP=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
- fragmentShader:`varying vec3 vP;uniform vec3 cTop,cMid,cBot;void main(){float h=normalize(vP).y;vec3 c=mix(cBot,cMid,smoothstep(-0.04,0.16,h));c=mix(c,cTop,smoothstep(0.16,0.65,h));gl_FragColor=vec4(c,1.0);}`})));
+ /* D18: Rayleigh-ish — più rosso/arancio vicino al sole (orizzonte all'alba/tramonto), più blu lontano */
+ fragmentShader:`varying vec3 vP;uniform vec3 cTop,cMid,cBot;uniform float uSunY,uSunWarm;
+  void main(){
+    vec3 d=normalize(vP);
+    float h=d.y;
+    vec3 c=mix(cBot,cMid,smoothstep(-0.04,0.16,h));
+    c=mix(c,cTop,smoothstep(0.16,0.65,h));
+    /* scattering: angolo rispetto al sole ≈ d.y quando sole in alto */
+    float horizon=1.0-clamp(abs(d.y),0.0,1.0);
+    float warm=horizon*uSunWarm*smoothstep(0.0,0.3,1.0-abs(d.y-uSunY*0.5));
+    c=mix(c,vec3(1.0,0.55,0.25),clamp(warm*0.4,0.0,0.4));
+    gl_FragColor=vec4(c,1.0); }`})));
 function softTexture(i,o){ const c=document.createElement('canvas');c.width=c.height=128;const g=c.getContext('2d');
  const gr=g.createRadialGradient(64,64,6,64,64,62);gr.addColorStop(0,i);gr.addColorStop(1,o);g.fillStyle=gr;g.fillRect(0,0,128,128);return new THREE.CanvasTexture(c); }
 const sunSprite=new THREE.Sprite(new THREE.SpriteMaterial({map:softTexture('rgba(255,246,210,1)','rgba(255,246,210,0)'),transparent:true,depthWrite:false,fog:false}));
@@ -500,6 +511,11 @@ let procHangar=null;
   const beaconLight=new THREE.Mesh(new THREE.SphereGeometry(0.14,10,8),new THREE.MeshStandardMaterial({color:0x990000,emissive:0xff2020,emissiveIntensity:0.4}));
   beaconLight.position.set(7,9.8,2); procHangar.add(beaconLight);
   procHangar.userData.beacon=beaconLight;
+  /* D18: 2 porte basculanti sul lato frontale (z=18) che si aprono quando il player è vicino (<20 m) */
+  const doorM=new THREE.MeshStandardMaterial({color:0x6d747c,roughness:.7,metalness:.3});
+  const door1=new THREE.Mesh(new THREE.BoxGeometry(5,5.5,0.2),doorM); door1.position.set(-5,2.75,9.05); door1.castShadow=true; procHangar.add(door1);
+  const door2=new THREE.Mesh(new THREE.BoxGeometry(5,5.5,0.2),doorM); door2.position.set(5,2.75,9.05); door2.castShadow=true; procHangar.add(door2);
+  procHangar.userData.doors=[door1,door2];
   procHangar.position.set(HANGAR.x,HANGAR_H+0.10,HANGAR.y); procHangar.rotation.y=HANGAR_RY; scene.add(procHangar);
   addHangarFront(procHangar,{x:26,y:7,z:18});
   placeBarrels(procHangar,{x:26,y:7,z:18}); }
@@ -1254,8 +1270,19 @@ function buildFire(x,z){ const grp=new THREE.Group(); grp.position.set(x,terrain
   const scorch=new THREE.Mesh(new THREE.CircleGeometry(8,24),new THREE.MeshStandardMaterial({color:0x1a1512,roughness:1}));
   scorch.rotation.x=-Math.PI/2; scorch.position.y=0.08; grp.add(scorch);
   const light=new THREE.PointLight(0xff6a22,0,60); light.position.y=4; grp.add(light);
+  /* D18: particelle di cenere (Points grigio scuro) che salgono e driftano col vento */
+  const AN=80,ap=new Float32Array(AN*3),aa=new Float32Array(AN),asize=new Float32Array(AN),aseed=new Float32Array(AN);
+  const ag=new THREE.BufferGeometry();
+  ag.setAttribute('position',new THREE.BufferAttribute(ap,3));
+  ag.setAttribute('aAlpha',new THREE.BufferAttribute(aa,1));
+  ag.setAttribute('aSize',new THREE.BufferAttribute(asize,1));
+  for(let i=0;i<AN;i++) aseed[i]=Math.random();
+  const am=new THREE.ShaderMaterial({transparent:true,depthWrite:false,uniforms:{uColor:{value:new THREE.Color(0x3a3530)}},
+    vertexShader:`attribute float aAlpha;attribute float aSize;varying float vA;void main(){vA=aAlpha;vec4 mv=modelViewMatrix*vec4(position,1.0);gl_PointSize=aSize*(220.0/-mv.z);gl_Position=projectionMatrix*mv;}`,
+    fragmentShader:`uniform vec3 uColor;varying float vA;void main(){float d=length(gl_PointCoord-0.5);float a=smoothstep(0.5,0.1,d)*vA;if(a<0.01)discard;gl_FragColor=vec4(uColor,a*0.5);}`});
+  const ashPts=new THREE.Points(ag,am); ashPts.frustumCulled=false; grp.add(ashPts);
   scene.add(grp);
-  return {grp,pts,fg,fa,fsz,fseed,light,health:2.0,x,z}; }
+  return {grp,pts,fg,fa,fsz,fseed,light,ash:ashPts,ag,aa,asize,aseed,AN,health:2.0,x,z}; }
 function updateFire(dt,t){ if(!fire)return; const h=clamp(fire.health,0,2)/2;
   fire.light.intensity=h*60*(0.8+0.2*Math.sin(t*13));
   const N=fire.fseed.length;
@@ -1265,7 +1292,17 @@ function updateFire(dt,t){ if(!fire)return; const h=clamp(fire.health,0,2)/2;
     fire.fg.attributes.position.array[i*3]=Math.cos(a)*rr;
     fire.fg.attributes.position.array[i*3+1]=life*6.8*h+0.3;
     fire.fg.attributes.position.array[i*3+2]=Math.sin(a)*rr; }
-  fire.fg.attributes.position.needsUpdate=true; fire.fg.attributes.aAlpha.needsUpdate=true; fire.fg.attributes.aSize.needsUpdate=true; }
+  fire.fg.attributes.position.needsUpdate=true; fire.fg.attributes.aAlpha.needsUpdate=true; fire.fg.attributes.aSize.needsUpdate=true;
+  /* D18: cenere che sale e si disperde col vento */
+  if(fire.ash){ const W=0.45+0.2*Math.sin(t*0.23); const AN=fire.AN;
+    for(let i=0;i<AN;i++){ const life=(t*0.35+fire.aseed[i])%1;
+      fire.aa[i]=h*(1-life)*0.7; fire.asize[i]=(1.5+fire.aseed[i]*2)*(0.4+life);
+      const off=fire.aseed[i]*6.28+life*1.5; const drift=W*life*8;
+      fire.ag.attributes.position.array[i*3]=Math.cos(off)*(2+life*5)+drift;
+      fire.ag.attributes.position.array[i*3+1]=life*14+0.5;
+      fire.ag.attributes.position.array[i*3+2]=Math.sin(off)*(2+life*5)+drift*0.4; }
+    fire.ag.attributes.position.needsUpdate=true; fire.ag.attributes.aAlpha.needsUpdate=true; fire.ag.attributes.aSize.needsUpdate=true;
+  } }
 function buildSplash(){ const N=120,p=new Float32Array(N*3),v=new Float32Array(N*3),l=new Float32Array(N).fill(9);
   const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(p,3));
   const m=new THREE.Points(g,new THREE.PointsMaterial({color:0xbfe3ff,size:0.6,transparent:true,opacity:0.8,depthWrite:false}));
@@ -1497,6 +1534,8 @@ function applyTod(){ const theta=(tod-6)/12*Math.PI,elev=Math.sin(theta);
   skyUni.cMid.value.copy(mix3(C_NIGHT.mid,C_DUSK.mid,C_DAY.mid));
   skyUni.cBot.value.copy(mix3(C_NIGHT.bot,C_DUSK.bot,C_DAY.bot));
   scene.fog.color.copy(mix3(C_NIGHT.fog,C_DUSK.fog,C_DAY.fog));
+  /* D18: uniformi Rayleigh per il cielo shader */
+  skyUni.uSunY.value=elev; skyUni.uSunWarm.value=kD;
   hemi.intensity=(0.12+0.9*kDay+0.3*kD)*(1-0.4*overcastMix);
   if(elev>-0.06){ sunLight.position.set(Math.cos(theta)*150,Math.max(elev,0.05)*180,80);
     sunLight.intensity=(0.3+2.2*kDay+0.9*kD)*(1-0.7*overcastMix); sunLight.color.setHex(kD>0.4?0xff9a4d:0xfff1da); }
@@ -1520,7 +1559,7 @@ const presets=[{p:new THREE.Vector3(24,12,26),t:new THREE.Vector3(0,3,0)},{p:new
   {p:new THREE.Vector3(1,45,20),t:new THREE.Vector3(0,1,0)},{p:null,t:null},{p:null,t:null}];
 let camIdx=0,camTween=null;
 function cycleCamera(){ camIdx=(camIdx+1)%presets.length; camTween=presets[camIdx].p?presets[camIdx]:null; controls.enabled=camIdx!==4; }
-let audioOn=false,ac=null,master,saw,bp,chopGain,rainGain;
+let audioOn=false,ac=null,master,saw,bp,chopGain,rainGain,stallOsc,stallGain;
 function toggleAudio(){ if(!ac){ ac=new (window.AudioContext||window.webkitAudioContext)();
     master=ac.createGain(); master.gain.value=0; master.connect(ac.destination);
     const len=ac.sampleRate*2,buf=ac.createBuffer(1,len,ac.sampleRate),d=buf.getChannelData(0); let last=0;
@@ -1530,6 +1569,11 @@ function toggleAudio(){ if(!ac){ ac=new (window.AudioContext||window.webkitAudio
     saw=ac.createOscillator(); saw.type='sawtooth'; saw.frequency.value=42;
     const sg=ac.createGain(); sg.gain.value=0.45; chopGain=ac.createGain(); chopGain.gain.value=0.5;
     noise.connect(bp); bp.connect(chopGain); saw.connect(sg); sg.connect(chopGain); chopGain.connect(master);
+    /* D18: "blat" di stallo — onda quadra a frequenza più alta, modulata da fSTALL */
+    stallOsc=ac.createOscillator(); stallOsc.type='square'; stallOsc.frequency.value=180;
+    stallGain=ac.createGain(); stallGain.gain.value=0;
+    stallOsc.connect(stallGain); stallGain.connect(master);
+    stallOsc.start();
     const rn=ac.createBufferSource(); rn.buffer=buf; rn.loop=true; rn.playbackRate.value=1.7;
     const hp=ac.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=900;
     rainGain=ac.createGain(); rainGain.gain.value=0; rn.connect(hp); hp.connect(rainGain); rainGain.connect(ac.destination);
@@ -1584,9 +1628,39 @@ function makeTaxiCar(){
   }
   return g;
 }
-const taxiPath=[[-30,14],[40,14],[40,10],[60,10]];
+  const taxiPath=[[-30,14],[40,14],[40,10],[60,10]];
 const taxiCar={mesh:makeTaxiCar(), seg:0, t:0, speed:0.06, dir:1};
 scene.add(taxiCar.mesh);
+/* D18: caprioli procedurali con path AI su 3-4 waypoint, lontano da keepOut */
+function makeDeer(){
+  const g=new THREE.Group();
+  const fur=new THREE.MeshStandardMaterial({color:0x7a5235,roughness:.95});
+  const body=new THREE.Mesh(new THREE.BoxGeometry(1.6,0.6,0.55),fur); body.position.y=1.0; body.castShadow=true; g.add(body);
+  const neck=new THREE.Mesh(new THREE.BoxGeometry(0.4,0.6,0.4),fur); neck.position.set(0.65,1.4,0); neck.rotation.z=-0.4; g.add(neck);
+  const head=new THREE.Mesh(new THREE.BoxGeometry(0.45,0.35,0.32),fur); head.position.set(0.95,1.55,0); g.add(head);
+  const ear1=new THREE.Mesh(new THREE.ConeGeometry(0.07,0.16,4),fur); ear1.position.set(0.95,1.78,0.1); ear1.rotation.z=-0.2; g.add(ear1);
+  const ear2=ear1.clone(); ear2.position.z=-0.1; g.add(ear2);
+  const ant=new THREE.MeshStandardMaterial({color:0x3a2a1a,roughness:.7});
+  for(const z of [0.08,-0.08]){ const a=new THREE.Mesh(new THREE.ConeGeometry(0.04,0.32,4),ant); a.position.set(0.95,1.85,z); a.rotation.z=-0.3; g.add(a);
+    const a2=new THREE.Mesh(new THREE.ConeGeometry(0.025,0.18,4),ant); a2.position.set(1.05,1.7,z); a2.rotation.z=-1.2; g.add(a2); }
+  for(const [x,z] of [[0.55,0.22],[0.55,-0.22],[-0.55,0.22],[-0.55,-0.22]]){
+    const leg=new THREE.Mesh(new THREE.BoxGeometry(0.12,0.7,0.12),fur); leg.position.set(x,0.4,z); g.add(leg);
+  }
+  const tail=new THREE.Mesh(new THREE.BoxGeometry(0.12,0.18,0.18),new THREE.MeshStandardMaterial({color:0xe6d0b0,roughness:.95})); tail.position.set(-0.85,1.05,0); g.add(tail);
+  return g;
+}
+const DEER_PATHS=[
+ [[25,-60],[55,-75],[70,-55],[40,-50]],
+ [[-55,5],[-75,15],[-80,-10],[-60,-25]],
+ [[60,15],[80,30],[75,55],[55,45]]
+];
+const deerFleet=[];
+DEER_PATHS.forEach(p=>{
+  if(keepOut(p[0][0],p[0][1])||keepOut(p[2][0],p[2][1]))return;
+  const d=makeDeer(); d.position.set(p[0][0],terrainHeight(p[0][0],p[0][1]),p[0][1]);
+  d.userData={path:p,idx:1,t:0,speed:0.012+Math.random()*0.01,legPhase:0};
+  scene.add(d); deerFleet.push(d);
+});
 function updateTaxiTraffic(dt,t){ const p=taxiPath[taxiCar.seg], q=taxiPath[(taxiCar.seg+1)%taxiPath.length];
  taxiCar.t+=taxiCar.speed*taxiCar.dir*dt*60;
  if(taxiCar.t>1){taxiCar.t=0; taxiCar.seg=(taxiCar.seg+1)%taxiPath.length;}
@@ -1737,7 +1811,12 @@ function animate(){ requestAnimationFrame(animate);
   sockMesh.rotation.x=Math.sin(t*3.2)*0.08;
   /* D17: flag svolazzante aggiuntivo (rotazione lungo asse) */
   sockMesh.rotation.z=Math.sin(t*5.3+0.7)*0.12;
-  cloudGroup.children.forEach(cl=>{cl.position.x+=cl.userData.v*dt;if(cl.position.x>450)cl.position.x=-450;});
+  cloudGroup.children.forEach(cl=>{cl.position.x+=cl.userData.v*dt;if(cl.position.x>450)cl.position.x=-450;
+    /* D18: ombra nuvola proiettata a terra */
+    if(!cl.userData.shadow){const sm=new THREE.Mesh(new THREE.CircleGeometry(80,24),new THREE.MeshBasicMaterial({color:0x3a3a3a,transparent:true,opacity:0,depthWrite:false}));
+      sm.rotation.x=-Math.PI/2; sm.position.y=0.05; scene.add(sm); cl.userData.shadow=sm;}
+    cl.userData.shadow.position.x=cl.position.x; cl.userData.shadow.position.z=cl.position.z;
+    cl.userData.shadow.material.opacity=cl.material.opacity*0.18; });
   if(birdFleet.children.length){
     birdFleet.children.forEach(b=>{ const u=b.userData.u,a=t*u.sp+u.a0;
       b.position.set(Math.cos(a)*u.r,u.h+Math.sin(t*0.7+u.phase)*1.5,Math.sin(a)*u.r);
@@ -1757,6 +1836,16 @@ function animate(){ requestAnimationFrame(animate);
       const fl=Math.sin(t*9+u.phase)*0.55; u.wl.rotation.x=fl; u.wr.rotation.x=-fl;});
   }
   updateFire(dt,t); updateSplash(dt);
+  /* D18: cammino caprioli — interpolazione waypoint + ondeggio zampe */
+  deerFleet.forEach(d=>{ const u=d.userData;
+    u.t+=u.speed*dt*60; if(u.t>1){ u.t=0; u.idx=(u.idx+1)%u.path.length; }
+    const a=u.path[u.idx], b=u.path[(u.idx+1)%u.path.length];
+    const x=a[0]+(b[0]-a[0])*u.t, z=a[1]+(b[1]-a[1])*u.t;
+    d.position.set(x, terrainHeight(x,z), z);
+    d.rotation.y=Math.atan2(b[0]-a[0],b[1]-a[1])+Math.PI/2;
+    u.legPhase+=dt*8; const sw=Math.sin(u.legPhase)*0.15;
+    d.children.forEach((c,i)=>{ if(c.isMesh) c.position.y=0.4+Math.sin(u.legPhase+(i%2?0:Math.PI))*0.08; });
+  });
   if(autoCycle)tod=(tod+dt*(24/600))%24;
   updateWeather(dt,t); applyTod();
   if(game.state==='fly'&&heli){ game.elapsed+=dt; let objTxt=''; const m=game.mission;
@@ -1807,7 +1896,10 @@ function animate(){ requestAnimationFrame(animate);
   const sh=new THREE.Vector3((Math.sin(t*41.3)+Math.sin(t*27.7))*0.5,(Math.sin(t*36.1)+Math.sin(t*31.9))*0.5,(Math.sin(t*44.7)+Math.sin(t*25.3))*0.5).multiplyScalar(shakeAmp);
   camera.position.add(sh); lastShake.copy(sh);
   if(audioOn&&ac){ master.gain.value=0.5*rpm; saw.frequency.value=38+rpm*36; bp.frequency.value=90+rpm*90+fVRS*60;
-    chopGain.gain.value=0.3+0.3*Math.abs(Math.sin(t*(6+rpm*26)))+fVRS*0.25; rainGain.gain.value=rainMix*0.14; }
+    chopGain.gain.value=0.3+0.3*Math.abs(Math.sin(t*(6+rpm*26)))+fVRS*0.25; rainGain.gain.value=rainMix*0.14;
+    /* D18: "blat" stallo: fSTALL > 0.1 → gain modulato + frequenza ondulata */
+    if(stallGain) { stallGain.gain.value = Math.max(0, fSTALL - 0.08) * 0.4;
+      stallOsc.frequency.value = 160 + Math.sin(t*12) * 40 * fSTALL; } }
   let stato; if(rpm<0.03)stato='MOTORE OFF'; else if(rpm<0.7)stato=engineOn?'SPOOL-UP':'SPEGNIMENTO';
   else if(alt>0.8)stato=engineOn?(holdOn?'HOLD QUOTA':'VOLO MANUALE'):'AUTOROTAZIONE'; else stato='A TERRA';
   tele.textContent=`RPM ${Math.round(rpm*100)}% · QUOTA ${alt.toFixed(1)} m · V/S ${vzV.toFixed(1)} · IAS ${speedH.toFixed(0)} · PRUA ${headingDeg().toFixed(0)}° · ${stato}`;
@@ -1820,6 +1912,14 @@ function animate(){ requestAnimationFrame(animate);
   updateDustPuffs(dt);
   if(window.__wet) window.__wet.material.opacity=clamp(rainMix*0.55+snowMix*0.35,0,0.6);
   if(procHangar && procHangar.userData.beacon) procHangar.userData.beacon.material.emissiveIntensity=(Math.sin(t*2.0)>0.4)?2.8:0.2;
+  /* D18: porte hangar che si aprono quando il player è entro 20 m */
+  if(procHangar && procHangar.userData.doors && heli){
+    const dx=heli.position.x-procHangar.position.x, dz=heli.position.z-procHangar.position.z;
+    const d=Math.hypot(dx,dz); const open=d<20?1:0; const target=open*5.2;
+    procHangar.userData.doors.forEach(dr=>{
+      const cur=dr.position.y; dr.position.y=cur+(2.75+target-cur)*Math.min(1,dt*1.2);
+    });
+  }
   renderer.render(scene,camera); }
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
 renderMenu();
