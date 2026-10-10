@@ -94,6 +94,33 @@ Dopo l'abilitazione iniziale, ogni push su `main` deploya in ~30 secondi.
 
 *Il parcheggio aeroportuale: 6 veicoli Kenney (auto rossa, berlina, van bianco, autobus, mezzo antincendio, ambulanza) con vetri riflettenti `MeshPhysicalMaterial`, affianco al taxi car procedurale in movimento sulla taxiway. Lampioni, siepi e asfalto con overlay "bagnato" attivo.*
 
+### Fase D20 — bloom selettivo e paesaggio cinematografico
+
+#### Vista aerea diurna
+![D20 aerial day](docs/images/08_d20_aerial_day.png)
+
+*Fase D20: bloom corretto (niente più aloni sul cemento), manica a vento completa, taxiway, siepi, hangar. Veicoli con colori realistici (taxi giallo, berlina blu, furgone bianco).*
+
+#### Hero shot helipad
+![D20 helipad hero](docs/images/10_d20_helipad_hero.png)
+
+*Composizione "videogame stile film": elicottero centrato, hangar in sfondo, manica a vento in primo piano, veicoli, montagne innevate, nubi sparse, helipad con H gialla ben leggibile.*
+
+#### Tramonto cinematico
+![D20 sunset hero](docs/images/12_d20_sunset_hero.png)
+
+*Tramonto (fase DUSK): hangar con cupola contro cielo blu-scuro, foreste in silhouette, elicottero al centro, manica a vento, taxiway, pickup grigio del taxi procedurale. Composizione adatta a inquadratura cinematografica.*
+
+#### Vista notturna con beacon dei soccorsi
+![D20 aerial night](docs/images/09_d20_aerial_night.png)
+
+*Notte (kN=1): ambulance bianca con scritte rosse ben visibile, taxi giallo, berlina blu, pickup del taxi procedurale. Le PointLight rosso/blu dei Grab3D illuminano l'asfalto sotto i mezzi. Bloom selettivo attivo solo sui beacon — niente aloni sul cemento o sui lampioni.*
+
+#### Beacon dei mezzi di soccorso
+![D20 service night](docs/images/11_d20_service_night.png)
+
+*Close-up notturno dell'area servizi: hangar, manica a vento, luci rosso/blu del beacon Grab3D visibili in basso a destra, pickup grigio, asfalto dettagliato con stripe taxiway, montagne e foresta sullo sfondo.*
+
 ### Veicoli nel mondo
 
 Il progetto ha **7 veicoli** totali, con due distinti sistemi di caricamento e nessuna duplicazione:
@@ -388,6 +415,40 @@ Validano inoltre:
 - Recinzione perimetrale visibile senza artefatti sui cancelli
 - 0 NaN, 0 errori non-risorsa (eccetto atteso 404 su `assets/helicopter.glb`)
 
+### Come riprodurre i test
+
+```bash
+# 1. Server statico del progetto
+python3 -m http.server 8123
+
+# 2. Sparse-clone del repo Kenney per il car kit (evita rate-limit API)
+git clone --depth 1 --filter=blob:none --sparse https://github.com/ETdoFresh/kenney.nl.git /tmp/kn
+cd /tmp/kn && git sparse-checkout set carkit_v1.4/Models/GLTF\ format
+
+# 3. Crea una copia strumentata del progetto che serve il car kit da localhost
+mkdir -p /tmp/local && cp -r /workspace/app/assets /tmp/local/
+mkdir -p /tmp/local/carkit_v1.4/Models
+cp -r "/tmp/kn/carkit_v1.4/Models/GLTF format" "/tmp/local/carkit_v1.4/Models/"
+# patch per esporre camera/controls su window (per test)
+sed 's|const controls=new OrbitControls(camera,renderer.domElement);|const controls=new OrbitControls(camera,renderer.domElement);window.__cam=camera;window.__ctl=controls;window.__scene=scene;|' /workspace/app/index.html > /tmp/local/index.html
+
+# 4. Server per la copia strumentata
+python3 -m http.server 8124 &  # root /tmp/local
+
+# 4. Pre-seeda il localStorage per saltare l'enumerazione GitHub API
+python3 -c "
+import json, os, urllib.parse
+root='/tmp/kn/carkit_v1.4/Models/GLTF format'
+files=[{'name':f,'download_url':'http://localhost:8123/carkit_v1.4/Models/GLTF%20format/'+f} for f in os.listdir(root) if f.endswith('.glb')]
+json.dump({'carkit_v1.4':{'t':0,'files':files}}, open('kitcache.json','w'))
+"
+
+# 5. Esegui Playwright (lo script seeda localStorage, attende Grab3D, scatta)
+node /path/to/shot3.js http://localhost:8123/index.html vN
+```
+
+Gli screenshot migliori vengono archiviati in `docs/images/08_d20_*.png ... 12_d20_*.png` come riferimento visivo della Fase D20.
+
 ---
 
 ## Licenza
@@ -397,6 +458,17 @@ Modello elicottero `srcejon/sdrangel-3d-models`: controllare licenza del repo.
 Veicoli soccorso `Cozy Vehicles Kit` (Grab3D CC0): **CC0**.
 Flamingo `three.js` examples: CC0.
 Three.js: MIT.
+
+---
+
+## Changelog
+
+| Versione | Data | Note |
+|---|---|---|
+| Fase D20 | 2026-10 | Post-processing UnrealBloomPass selettivo a 2-composer, fly-by camera introduttiva, halo cinematico del sole, recinzione perimetrale aeroporto, windsock animata, audio vento + whoop sirena, fix duplicati veicoli emergenza, fix colori non ufficiali, fix taxi teleport, fix encoding GitHub API |
+| Fase D19 | 2026-09 | 3 veicoli soccorso Grab3D CC0 (fire-truck, ambulance, police-car) con ruote animate, beacon overlay, fari notturni, pattuglia, missione 7 "Servizio aeroportuale" |
+| Fase D18 | 2026-08 | Audio "blat" stallo, porte hangar interattive, ombra nuvole, atmosfera Rayleigh, cenere rogo, caprioli procedurali |
+| Fase D17 | 2026-07 | Lago riflettente, fanali notturni veicoli, erba reattiva downwash, beacon/faro hangar, vetri riflettenti, siepi, fiume, scie uccelli, danni atterraggio, vibrazione HUD VRS, runway "27" + touchdown |
 
 ---
 
