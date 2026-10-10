@@ -32,6 +32,22 @@ In alternativa, doppio click su `index.html` — funziona ma il browser potrebbe
 
 **Requisiti:** browser con WebGL 2 (Chrome/Edge/Firefox/Safari recenti), Three.js r160 caricato da CDN (jsDelivr). Gamepad opzionale.
 
+## Gioco online (GitHub Pages)
+
+Il progetto è pubblicato automaticamente online ad ogni push su `main` tramite GitHub Actions:
+
+- **URL:** https://amedeo82.github.io/Hangar-3D-Carriera-Pilota/
+- **Workflow:** `.github/workflows/deploy.yml`
+- **Trigger:** push su `main` + `workflow_dispatch` manuale
+- **Setup iniziale richiesto** (solo la prima volta):
+  1. Vai su **Settings → Pages** del repo
+  2. Sotto "Source" seleziona **GitHub Actions** (NON "Deploy from a branch")
+  3. Conferma
+- Il workflow usa `actions/configure-pages@v4`, `upload-pages-artifact@v3`, `deploy-pages@v4` (tutto ufficiale GitHub)
+- File `.nojekyll` incluso per disabilitare Jekyll e servire asset statici verbatim (importante per `assets/vehicles/*.glb`)
+
+Dopo l'abilitazione iniziale, ogni push su `main` deploya in ~30 secondi.
+
 ---
 
 ## Screenshot

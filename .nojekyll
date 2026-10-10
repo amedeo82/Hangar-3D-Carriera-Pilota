@@ -1,0 +1,2 @@
+# GitHub Pages ignora i file che iniziano con _ per default.
+# Aggiungo .nojekyll per disabilitare Jekyll e servire tutto il contenuto statico.
