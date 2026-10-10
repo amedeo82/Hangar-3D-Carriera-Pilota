@@ -2,7 +2,7 @@
 
 Un simulatore di elicottero passeggeri **completamente in un singolo file HTML**, scritto in Three.js r160 via CDN. Nessun build step, nessuna installazione: si apre `index.html` in un browser moderno e si vola.
 
-> Stato: **Fase D17** — sei missioni, gamepad, traffico taxiway, ombra in volo, LOD, lago riflettente, fanali veicoli, erba reattiva al downwash, beacon hangar, danni atterraggio, HUD vibrante in VRS, e molto altro.
+> Stato: **Fase D20** — bloom selettivo sui beacon, fly-by camera introduttiva, halo cinematico del sole, recinzione perimetrale aeroporto, windsock completa animata dal vento, audio ambientale (vento + whoop sirena), e fix dei veicoli "doppi" e delle colorazioni non ufficiali.
 
 ---
 
@@ -96,19 +96,22 @@ Dopo l'abilitazione iniziale, ogni push su `main` deploya in ~30 secondi.
 
 ### Veicoli nel mondo
 
-Il progetto ha **7 veicoli** totali, con due distinti sistemi di caricamento:
+Il progetto ha **7 veicoli** totali, con due distinti sistemi di caricamento e nessuna duplicazione:
 
 | Veicolo | Tipo | Posizione | Note |
 |---|---|---|---|
-| Taxi car | Procedurale | Path loop [(-30,14)→(40,14)→(40,10)→(60,10)] | 2 `SpotLight` anteriori, attive solo di notte, ruote sterzate lungo il path |
-| Mezzo antincendio (fire) | Kenney GLB | (29, 10) | Luci rosse/blu animate dal rilevatore GLB esistente |
-| Ambulanza (amb) | Kenney GLB | (21, 6) | idem |
-| Autobus (bus) | Kenney GLB | (37, 6) | ruotato 1.2 rad |
-| Carro attrezzi (tow) | Kenney GLB | (10, 12) | |
-| Camion cisterna (fuel) | Kenney GLB | (-14, 9) | |
-| Furgone (van) | Kenney GLB | (-24, -6) | |
+| Taxi car | Procedurale | Path loop 10 waypoint | 2 `SpotLight` anteriori, attive solo di notte, ruote sterzate lungo il path; velocità realistica 6 m/s (D20) |
+| Berlina (sedan) | Kenney GLB | (10, 12) | Aerporto · colore blu navy |
+| Taxi | Kenney GLB | (12, 14) | Aerporto · colore giallo taxi |
+| Furgone (delivery) | Kenney GLB | (-24, -6) | Aerporto · colore bianco |
+| Tractor (bus fallback) | Kenney GLB | (37, 6) | Aerporto · ruotato 1.2 rad |
+| Mezzo antincendio (fire-truck) | Grab3D CC0 | (29, 10) | Ruote + lightbar rosso/blu + fari anteriori (D19) |
+| Ambulanza (ambulance) | Grab3D CC0 | (5, 7) | Ruote + lightbar + fari anteriori (D19) |
+| Auto polizia (police-car) | Grab3D CC0 | Patrolling perimeter (-35..45, -16..20) | Ruote + lightbar + fari + beacon (D19/D20) |
 
-**Veicoli Kenney (carkit_v1.4):** scaricati live da GitHub API. I materiali con `lum<0.2` (vetri) vengono automaticamente convertiti a `MeshPhysicalMaterial` con `transmission/roughness/envMap` per riflessi realistici. Le mesh piccole rosse/blu (<1 m) con luci già presenti nel modello lampeggiano in antifase; **nessuna geometria aggiunta** (D15).
+**Veicoli Kenney (carkit_v1.4):** scaricati live da GitHub API. I materiali con `lum<0.2` (vetri) vengono automaticamente convertiti a `MeshPhysicalMaterial` con `transmission/roughness/envMap` per riflessi realistici. I colori target sono stati ricalibrati (D20) per evitare il lerp "rosa desaturato" sui corpi (sedan blu, taxi giallo, furgone bianco, tractor verde). I veicoli di emergenza (fire/ambulance/police) sono stati **rimossi** dagli spot Kenney per evitare duplicati con i Grab3D: ora appartengono solo al sistema Grab3D.
+
+**Veicoli Grab3D (Cozy Vehicles Kit CC0, D19):** modelli GLB locali in `assets/vehicles/` con animazione ruote, fari anteriori `SpotLight`, beacon overlay `SphereGeometry` emissive (`emissiveIntensity=2.2`) + `PointLight` rosso/blu. La polizia pattuglia un circuito perimetrale dell'apron a velocità realistica.
 
 **Taxi car procedurale (D16):** costruito in `makeTaxiCar()` con `BoxGeometry`/`CylinderGeometry`. Ha:
 - Carrozzeria + cabina + vetro (`MeshPhysicalMaterial` riflettente)
@@ -180,20 +183,47 @@ Un eliporto alpino con:
 - **Rogo antincendio** (50, 40) — particles shader + PointLight pulsante, usato dalla missione 5
 - **Vegetazione Kenney** (alberi, cespugli, fiori) con LOD far forest r 120..200
 - **Stormo di uccelli** (procedurale o .glb Flamingo CC0) — animato in cielo con scie di condensa
-- **Taxi car** che looppa su 4 waypoint, con fari anteriori che si accendono di notte
-- **Nuvole** sprite-based che scorrono col vento
-- **Sole, luna, stelle** posizionati in base all'ora del giorno
+- **Taxi car** che looppa su 10 waypoint chiuso (6 m/s reali), con fari anteriori che si accendono di notte
+- **Nuvole** sprite-based (22 nubi sparse) che scorrono col vento
+- **Sole, luna, stelle** posizionati in base all'ora del giorno, con halo e lens flare cinematici
 - **Overlay bagnato** che appare con la pioggia
 - **Siepi** lungo i bordi della taxiway
+- **Recinzione perimetrale** (D20) — 56 paletti, 3 fili e 2 cancelli d'ingresso, raggio 70 m, ancorata al terreno
+- **Manica a vento** (D20) — palo + cerchio + sock animata da `windUni.uWind`
+- **Bloom selettivo** (D20) — solo i beacon dei mezzi di soccorso, non i lampioni né il cemento
+- **Fly-by camera** (D20) — sequenza introduttiva 5.5 s prima del volo libero
 
 ### Atmosfera / ciclo giorno
 
 - 4 preset: `sereno`, `vento`, `pioggia`, `neve` (ciclabili con `J`)
 - Mix colore cielo in 3 stop: notte → tramonto → giorno
 - Fog color che segue il cielo
-- Sole e luna con sprite
+- Sole e luna con sprite + halo cinematico (D20) visibile soprattutto all'alba/tramonto
 - Stellato visibile di notte
 - Auto-cycle 600s/giorno
+
+### Post-processing e bloom (D20)
+
+Pipeline `EffectComposer` a 2 stadi per il bloom selettivo:
+
+1. **`bloomComposer`** — renderizza la scena con `camera.layers.set(BLOOM_LAYER)`, dopo aver **oscurato** (mesh → `MeshBasicMaterial` nero) tutti i mesh non appartenenti al layer BLOOM. Applica `UnrealBloomPass` (intensità 1.4, radius 0.8, threshold 0).
+2. **`finalComposer`** — renderizza la scena completa e mixa il bloom via `ShaderPass` additivo (`baseTexture + bloomTexture`), poi `OutputPass` per la conversione tonemapping.
+
+Risultato: solo i beacon dei veicoli di soccorso Grab3D (che hanno `layers.enable(1)`) vengono blooomati, evitando aloni sul cemento o sui lampioni.
+
+### Cinematica introduttiva (D20)
+
+`playIntroCine()` attiva una sequenza di 4 keyframes (5.5 s) con interpolazione smoothstep che orbita attorno all'eliporto (partenza `48,18,42` → arrivo al preset 0 `(24,12,26)`). Skip automatico al primo click (`pointerdown`) o richiamando `skipIntroCine()`. Durante l'intro `OrbitControls` è disabilitato.
+
+### Audio ambientale (D20)
+
+`toggleAudio` istanzia i nodi WebAudio solo al primo toggle per rispettare la policy autoplay:
+
+- **Rotore** (sawtooth 38–74 Hz + noise bandpass 90–180 Hz) modulato da `rpm`
+- **Stallo** (square 160 Hz) modulato da `fSTALL`
+- **Pioggia** (pink noise highpass 900 Hz) gain su `rainMix`
+- **Vento** (D20) — pink noise lowpass 400 Hz, gain su `windUni.uWind · (1 − rainMix·0.6)`
+- **Whoop sirena** (D20) — sine 620–900 Hz FM, gain su `__nightK` (più forte di notte, simulando la pattuglia police)
 
 ---
 
@@ -253,7 +283,7 @@ Allarmi radio attivi:
 
 ## Struttura del codice
 
-`index.html` (~1830 righe) è organizzato come:
+`index.html` (~2200 righe) è organizzato come:
 
 | Sezione | Righe circa | Contenuto |
 |---|---|---|
@@ -278,7 +308,9 @@ Allarmi radio attivi:
 | Input handlers (keydown, gamepad) | 1545–1642 | Mappatura tasti + gamepad poll |
 | **Miglioramenti D16** (heli shadow, taxi, LOD, tour) | 1555–1600 | |
 | **Miglioramenti D17** (lago, fari, downwash, beacon, danni, HUD VRS) | vari | |
-| `animate()` loop | 1644–1823 | Game loop: fisica, camera, render |
+| **Miglioramenti D19** (Grab3D vehicles, lightbar, missione 7) | 1334–1420 | |
+| **Miglioramenti D20** (bloom, intro, fence, windsock, audio) | 168–230 / 1469–1530 / 2160–2200 | |
+| `animate()` loop | 2128–2200 | Game loop: fisica, camera, render (2-composer bloom) |
 
 ---
 
@@ -298,6 +330,8 @@ Allarmi radio attivi:
 | **D16** | Progressione missioni 2★, gamepad, missione 6 "Tour", traffico taxi, heli shadow, LOD far forest |
 | **D17** | Lago riflettente, fanali notturni veicoli, erba reattiva downwash, beacon/faro hangar, vetri riflettenti, siepi, fiume, scie uccelli, danni atterraggio morbido, vibrazione HUD VRS, runway "27" + touchdown |
 | **D18** | Audio "blat" stallo, porte hangar interattive (si aprono entro 20 m), ombra nuvole sul terreno, atmosfera Rayleigh (warm glow al tramonto), cenere rogo, caprioli procedurali con path AI |
+| **D19** | 3 veicoli soccorso Grab3D CC0 (fire-truck, ambulance, police-car) con ruote animate, beacon overlay, fari notturni, pattuglia, missione 7 "Servizio aeroportuale" |
+| **D20** | Post-processing UnrealBloomPass selettivo a 2-composer, fly-by camera introduttiva, halo cinematico del sole, recinzione perimetrale aeroporto (56 paletti + 3 fili + 2 cancelli), manica a vento animata, audio vento + whoop sirena, fix duplicati veicoli e colori non ufficiali, fix taxi "sfreccia", fix encoding GitHub API (`encodeURIComponent`) |
 
 ---
 
@@ -325,18 +359,33 @@ Proposte non ancora implementate (in ordine di complessità crescente):
 - ❌ Sistema di danni completo (contatto duro → danni rotore, fumo persistente, fine missione)
 - ❌ Missione "Taxi a terra" con guida waypoint di un veicolo di terra
 
+### Bug-fix completati (D20)
+- ✅ Taxi che "sfreccia avanti e indietro" → riscritto a 6 m/s con path chiuso 10-waypoint
+- ✅ Veicoli di emergenza duplicati (Kenney + Grab3D sovrapposti) → rimossi Kenney fire/ambulance/police
+- ✅ Colori "tendenti al rosa" non ufficiali → tavolozza aeroporto + `lerp 0.85`
+- ✅ GitHub API 403 su path con spazi (`GLTF format`) → `encodeURIComponent` in `listKenney`
+- ✅ Police nel bosco a (-40,-25) → circuito perimetrale apron realistico
+- ✅ Rocce Kenney "tetto menta/rosa" → ricolorate verso grigio naturale con clamp
+
 ---
 
 ## Test
 
-I test automatici usano **Playwright + Chromium** con `--use-gl=swiftshader` per WebGL in headless. Verificano:
+I test visivi di regressione usano **Playwright + Chromium** con `--use-gl=angle` per WebGL in headless (vedi `/tmp/kilo/shot/`). Catturano ~13 shot per run:
 
-- Modulo JS carica senza errori
-- Mission cards renderizzate (6, con 2 e 3 locked)
+- Menu missioni renderizzato correttamente
+- Sequenza fly-by camera (5 frame consecutivi)
+- Aerial diurnal/notturno/tramonto (`aerial_day`, `aerial_night`, `sunset_hero`)
+- Veicoli di soccorso + bloom sui beacon (`service_close`, `service_night`)
+- Police in pattuglia (`police_patrol`)
+- Hero shot elipad (`helipad_hero`)
+- Approccio cinematico (`cinematic_approach`)
+
+Validano inoltre:
+- Modulo JS carica senza errori (`pageerror` listener)
+- Compositor 2-pass (bloom + final) produce frame non saturi
 - HUD telemetria aggiornata
-- Spool-up motore, IGE, decollo
-- Pannelli senza overlap
-- Scene contains: taxi car, heli shadow, hangar beacon, fari veicoli, hedges, fiume, wet overlay, water normalMap, LOD far trees
+- Recinzione perimetrale visibile senza artefatti sui cancelli
 - 0 NaN, 0 errori non-risorsa (eccetto atteso 404 su `assets/helicopter.glb`)
 
 ---
@@ -345,6 +394,7 @@ I test automatici usano **Playwright + Chromium** con `--use-gl=swiftshader` per
 
 Modelli `Kenney.nl` / `kenney.cc`: **CC0** (dominio pubblico).
 Modello elicottero `srcejon/sdrangel-3d-models`: controllare licenza del repo.
+Veicoli soccorso `Cozy Vehicles Kit` (Grab3D CC0): **CC0**.
 Flamingo `three.js` examples: CC0.
 Three.js: MIT.
 
