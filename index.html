@@ -21,7 +21,7 @@
   #aero { margin-top:2px; font-size:10px; color:#8aa4c0; }
   #aero .on { color:#5dde8f; } #aero .warn { color:#ff7b7b; font-weight:bold; }
   #compass { top:12px; left:50%; transform:translateX(-50%); padding:5px 10px; }
-  #btnHelp { top:12px; right:12px; }
+  #btnHelp { top:12px; right:12px; z-index:30; }
   #keys { top:52px; right:12px; width:250px; font-size:10.5px; line-height:1.6; color:#bcd6ee; }
   #keys b { color:#e8eef5; font-size:11.5px; }
   #keys kbd { background:rgba(120,180,255,.15); border:1px solid rgba(120,180,255,.3); border-radius:4px; padding:0 4px; font-family:ui-monospace,monospace; font-size:10px; }
@@ -32,7 +32,7 @@
   #logbox { bottom:52px; left:12px; width:340px; }
   #log { font-family:ui-monospace,Consolas,monospace; font-size:10.5px; line-height:1.5; color:#9fc4e8; max-height:150px; overflow-y:auto; }
   #log .ok { color:#5dde8f; } #log .err { color:#ff7b7b; } #log .warn { color:#ffd166; }
-  #radio { position:fixed; left:12px; bottom:96px; z-index:11; display:flex; flex-direction:column; gap:6px; pointer-events:none; }
+  #radio { position:fixed; left:12px; bottom:116px; z-index:11; display:flex; flex-direction:column; gap:6px; pointer-events:none; }
   .rline { background:rgba(28,24,8,.78); border-left:3px solid #ffd166; color:#ffe6a8; font-size:12px; padding:6px 12px; border-radius:0 10px 10px 0; max-width:420px; transition:opacity .8s; }
   .rline b { color:#fff; } .rline.fade { opacity:0; }
   #dock { bottom:12px; left:50%; transform:translateX(-50%); display:flex; flex-wrap:wrap; gap:7px; align-items:center; justify-content:center; max-width:calc(100vw - 200px); }
@@ -161,6 +161,7 @@ renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.outputColorSpace=THREE.SRGBColorSpace;
 document.getElementById('app').appendChild(renderer.domElement);
 const scene=new THREE.Scene(); scene.fog=new THREE.Fog(0xd4e3ee,120,520);
+window.__scene=scene;   /* hook per test/debug in console */
 /* D15: anisotropia massima disponibile: le insegne (testo) restano leggibili anche viste molto di taglio */
 const MAX_ANISO=renderer.capabilities.getMaxAnisotropy();
 scene.environment=new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(),0.04).texture;
@@ -583,7 +584,12 @@ function detectRotorNodes(root){ const cands=[];
   let tailObj=null; if(tail&&bd>1){ const pT=parentOfBlades(tail.o,root); tailObj=pT||tail.o; }
   return {mainObj:main.o,tailObj}; }
 function setupLoadedModel(gltf,c){ const root=gltf.scene;
-  root.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
+  let nanFix=0;
+  root.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;
+    const pa=o.geometry&&o.geometry.attributes&&o.geometry.attributes.position;
+    if(pa){ for(let i=0;i<pa.array.length;i++) if(!Number.isFinite(pa.array[i])){pa.array[i]=0;nanFix++;}
+      if(nanFix)pa.needsUpdate=true; } }});
+  if(nanFix)log(`⚠ Corrette ${nanFix} coordinate NaN nel modello (bounding sphere)`, 'warn');
   const box=new THREE.Box3().setFromObject(root); const size=box.getSize(new THREE.Vector3());
   root.scale.setScalar(HELI_LEN/Math.max(size.x,size.y,size.z));
   const box2=new THREE.Box3().setFromObject(root); const center=box2.getCenter(new THREE.Vector3());
@@ -894,11 +900,11 @@ const VEHICLE_SPECS=[
   {re:/van|delivery|truck|flatbed/,    len:6.5, h:2.8}];
 const VEHICLE_DEFAULT_SPEC={len:5.0,h:1.9};
 const VEHICLE_SPOTS=[
-  {re:/fire/i,               x:16,  z:10,  ry:-0.4},
+  {re:/fire/i,               x:29,  z:10,  ry:-0.4},
   {re:/tank|fuel/i,          x:-14, z:9,   ry:0.5},
-  {re:/ambulance/i,          x:24,  z:6,   ry:-0.2},
-  {re:/bus/i,                x:38,  z:6,   ry:1.2},
-  {re:/tow|sedan|taxi|car/i, x:10,  z:14,  ry:0.3},
+  {re:/ambulance/i,          x:21,  z:6,   ry:-0.2},
+  {re:/bus/i,                x:37,  z:6,   ry:1.2},
+  {re:/tow|sedan|taxi|car/i, x:10,  z:12,  ry:0.3},
   {re:/van|delivery|truck|flatbed/i, x:-24, z:-6, ry:0.9}];
 const VEHICLE_FALLBACK=[/jeep|police|pickup|transport|service|utility|tractor|crane|forklift/, null];
 function addCones(x,z){
@@ -953,41 +959,30 @@ async function loadKenneyVehicles(){
       _b.setFromObject(root);
       const S=_b.getSize(new THREE.Vector3());
       let foundEmerg=false;
+      /* Anima le luci GIÀ presenti nel modello glb: nessuna geometria aggiunta.
+         Rileva qualsiasi mesh piccola rossa/blu (girino, laterale, frontale) o nodo
+         nominato light/beacon/siren, e ne anima l'emissive in antifase rosso/blu. */
       root.traverse(o=>{
-        if(o.isMesh && o.material && o.material.color){
-          _b.setFromObject(o); const sz2=_b.getSize(new THREE.Vector3());
-          const ctr=_b.getCenter(new THREE.Vector3());
-          if(Math.max(sz2.x,sz2.y,sz2.z)<0.7 && ctr.y > S.y*0.55){
-            const cc=o.material.color;
-            const isRed=cc.r>0.5&&cc.g<0.3&&cc.b<0.3;
-            const isBlue=cc.b>0.5&&cc.r<0.3&&cc.g<0.45;
-            if(isRed||isBlue){
-              const m=o.material;
-              m.emissive=new THREE.Color(isRed?0xff2020:0x2040ff);
-              m.emissiveIntensity=0.3;
-              flashMats.push({m,phase:Math.random()*6});
-              foundEmerg=true;
-            }
-          }
+        if(!o.isMesh || !o.material || !o.material.color) return;
+        if(Array.isArray(o.material)) return;
+        _b.setFromObject(o); const sz2=_b.getSize(new THREE.Vector3());
+        if(Math.max(sz2.x,sz2.y,sz2.z)>1.0) return;
+        const cc=o.material.color;
+        const isRed=cc.r>0.45&&cc.g<0.4&&cc.b<0.4&&cc.r-cc.g>0.1;
+        const isBlue=cc.b>0.45&&cc.r<0.4&&cc.b-cc.r>0.1;
+        const isWarm=cc.r>0.4&&cc.r>=cc.b&&cc.r-cc.b>0.05;   /* rosso/arancio (beacon) */
+        /* luci nominate solo se blu o calde: i fari bianchi non lampeggiano */
+        const namedLight=/light|beacon|siren|flasher|lamp/i.test(o.name||'')&&(isBlue||isWarm);
+        if(isRed||isBlue||namedLight){
+          const m=o.material;
+          if(!m.emissive||m.emissive.getHex()===0) m.emissive=new THREE.Color(cc.getHex());
+          m.emissiveIntensity=0.3;
+          flashMats.push({m,phase:isBlue?Math.PI:(isRed?0:Math.random()*6)});
+          foundEmerg=true;
         }
       });
-      if(!foundEmerg && /fire|police|ambulance/.test(f.name)){
-        const barG=new THREE.Group();
-        const redM=new THREE.MeshStandardMaterial({color:0xff2020,emissive:0xff2020,emissiveIntensity:1,roughness:0.3});
-        const blueM=new THREE.MeshStandardMaterial({color:0x2040ff,emissive:0x2040ff,emissiveIntensity:1,roughness:0.3});
-        let rbox,bbox2;
-        if(S.z >= S.x){
-          rbox=new THREE.Mesh(new THREE.BoxGeometry(0.26,0.14,0.34),redM);  rbox.position.x=-0.14;
-          bbox2=new THREE.Mesh(new THREE.BoxGeometry(0.26,0.14,0.34),blueM); bbox2.position.x=0.14;
-        } else {
-          rbox=new THREE.Mesh(new THREE.BoxGeometry(0.34,0.14,0.26),redM);  rbox.position.z=-0.14;
-          bbox2=new THREE.Mesh(new THREE.BoxGeometry(0.34,0.14,0.26),blueM); bbox2.position.z=0.14;
-        }
-        barG.add(rbox,bbox2);
-        barG.position.set(0, S.y+0.07, 0);
-        holder.add(barG);
-        flashMats.push({m:redM,phase:0},{m:blueM,phase:Math.PI});
-      }
+      if(!foundEmerg && /fire|police|ambulance/.test(f.name))
+        log(`ℹ ${f.name}: nessuna luce dedicata nel modello, niente lampeggianti (nessuna geometria aggiunta)`);
       if(/ambulance/.test(f.name)){
         const stripe=new THREE.Mesh(new THREE.BoxGeometry(S.x*0.82,0.22,S.z*1.02),
           new THREE.MeshStandardMaterial({color:0x93302c,roughness:0.6}));
