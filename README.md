@@ -89,5 +89,7 @@ Stato dell'arte: **un unico file HTML autonomo** (Three.js r160 via CDN, nessun 
 | Giorno/notte, meteo base, paesaggio vivo | ✅ Completo |
 | Rotor wash polveroso + vibrazioni | ✅ Completo |
 | Verricello/gancio, HEMS, antincendio, meteo avanzato, vegetazione animata | ⏳ Fase C disponibile |
+| Gamepad (stick+trigger+bottoni), progressione missioni 2★, tour panoramico | ✅ Fase D16 |
+| Traffico taxiway, ombra elicottero in volo, LOD far forest | ✅ Fase D16 |
 
 Se vuoi, il prossimo passo naturale è la **Fase C**: gancio baricentrico/verricello con carichi esterni e missioni HEMS o benna antincendio, erba/chiome animate dal vento e meteo dinamico (pioggia/neve/nebbia). Dimmi solo "procedi con la fase C" — oppure chiedimi un file unico aggiornato, una variante di bilanciamento, o documentazione tecnica separata.

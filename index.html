@@ -74,6 +74,7 @@
   <kbd>G</kbd> gancio · <kbd>V</kbd>/<kbd>B</kbd> verricello · <kbd>H</kbd> acqua<br>
   <kbd>J</kbd> meteo · <kbd>C</kbd> camera (5ª=cockpit) · <kbd>U</kbd> audio<br>
   <kbd>1/2/3</kbd> giorno/tramonto/notte · <kbd>O</kbd> ciclo auto · <kbd>ESC</kbd> menu
+  <br><span style="color:#7fb3e8">🎮 Gamepad: stick sinistro = collettivo, stick destro = ciclici, dorsali = pedali</span>
 </div>
 <div id="btnLog" class="panel iconbtn">🧾</div>
 <div id="logbox" class="panel hidden"><div id="log"></div></div>
@@ -875,7 +876,7 @@ async function loadKenneyNature(){
         const gltf=await loader.loadAsync(f.download_url);
         const geo=bakeModel(gltf.scene); if(!geo) continue;
         recolorGeometry(geo,gr.mode,seed);
-        const im=instanciateGeo(geo,gr.count,gr,seed);
+        const im=instanciateGeoLOD(geo,gr.count,gr,seed);
         if(im&&im.count>0){ loaded++; log(`✓ Kenney: ${f.name} ×${im.count}`,'ok'); }
         seed++;
       }catch(e){}
@@ -1219,12 +1220,15 @@ const MISSIONS=[
  {id:3,nome:'LZ Bravo — precisione',par:160,type:'rings',
   brief:'Trasferimento su LZ Bravo: atterra nel centro con V/S < 1 m/s.',
   rings:[[25,-28,12],[55,-42,14]],land:[60,-40],landName:'LZ Bravo'},
- {id:4,nome:'Cargo HEMS — gancio',par:200,type:'cargo',
-  brief:'Cassa al deposito (26,-18): verricello (V), aggancia (G), consegna su LZ Bravo (G entro 8 m).',
-  rings:[],land:[0,0],crate:[26,-18],target:[60,-40],landName:'LZ Bravo'},
- {id:5,nome:'Antincendio — benna',par:260,type:'fire',
-  brief:'Rifornisci al lago, scarica (H) sul rogo a NE: 2 secchiate. Poi atterra su H.',
-  rings:[],land:[0,0],lake:LAKE,fire:FIREPOS,landName:'Eliporto H'}];
+  {id:4,nome:'Cargo HEMS — gancio',par:200,type:'cargo',req:3,
+   brief:'Cassa al deposito (26,-18): verricello (V), aggancia (G), consegna su LZ Bravo (G entro 8 m).',
+   rings:[],land:[0,0],crate:[26,-18],target:[60,-40],landName:'LZ Bravo'},
+  {id:5,nome:'Antincendio — benna',par:260,type:'fire',req:3,
+   brief:'Rifornisci al lago, scarica (H) sul rogo a NE: 2 secchiate. Poi atterra su H.',
+   rings:[],land:[0,0],lake:LAKE,fire:FIREPOS,landName:'Eliporto H'},
+  {id:6,nome:'Tour aeroporto',par:180,type:'tour',
+   brief:'Volo panoramico: 5 waypoint (hangar→officine→pista→lago→LZ Bravo), poi atterra su H.',
+   rings:[[26,-22,8],[46,24,10],[40,0,10],[-40,30,10],[60,-40,8]],land:[0,0],landName:'Eliporto H'}];
 const game={state:'menu',mission:null,ringIdx:0,phase:0,score:0,elapsed:0,ringPts:0,landPts:0,timePts:0,hard:false,bonus:0,fills:0,dumps:0};
 const ringsGroup=new THREE.Group(); scene.add(ringsGroup); let rings=[];
 let guideArrow=null,crateMesh=null;
@@ -1246,11 +1250,18 @@ function styleRings(){ rings.forEach((r,i)=>{ if(i<game.ringIdx){r.mat.emissive.
   else if(i===game.ringIdx){r.mat.emissive.setHex(0xffd166);r.mat.emissiveIntensity=1.6;r.mat.opacity=.95;r.beamMat.opacity=.16;}
   else {r.mat.emissive.setHex(0);r.mat.emissiveIntensity=0;r.mat.opacity=.3;r.beamMat.opacity=0;} }); }
 function bestKey(id){return 'heli3d_best_'+id;} function getBest(id){return +(localStorage.getItem(bestKey(id))||0);}
+function starsKey(id){return 'heli3d_stars_'+id;} function getStars(id){return +(localStorage.getItem(starsKey(id))||0);}
+function setStars(id,n){try{localStorage.setItem(starsKey(id),n);}catch(e){}}
+function missionUnlocked(m){ if(!m.req) return true; return getStars(m.req)>=2; }
 const menuEl=document.getElementById('menu'),resultsEl=document.getElementById('results'),mlistEl=document.getElementById('mlist');
 function renderMenu(){ mlistEl.innerHTML='';
-  MISSIONS.forEach(m=>{ const best=getBest(m.id); const div=document.createElement('div'); div.className='mcard';
-    div.innerHTML=`<div class="info"><b>${m.id}. ${m.nome}</b><div>${m.brief}<br>⏱️ Par ${m.par}s</div></div><div class="best">${best?'★ '+best:'—'}</div>`;
-    const btn=document.createElement('button'); btn.textContent='Avvia'; btn.onclick=()=>startMission(m); div.appendChild(btn); mlistEl.appendChild(div); }); }
+  MISSIONS.forEach(m=>{ const best=getBest(m.id); const st=getStars(m.id); const locked=!missionUnlocked(m);
+    const div=document.createElement('div'); div.className='mcard';
+    const lockTxt=locked?`<br>🔒 Sblocca con 2★ nella missione ${m.req}`:'';
+    const starsTxt=st?`★${st} `:'';
+    div.innerHTML=`<div class="info"><b>${m.id}. ${m.nome}${locked?' 🔒':''}</b><div>${m.brief}${lockTxt}<br>⏱️ Par ${m.par}s</div></div><div class="best">${starsTxt}${best?' '+best:'—'}</div>`;
+    const btn=document.createElement('button'); btn.textContent=locked?'🔒':'Avvia'; btn.disabled=locked; btn.style.opacity=locked?.4:1; btn.style.cursor=locked?'not-allowed':'pointer';
+    btn.onclick=()=>{ if(!locked)startMission(m); }; div.appendChild(btn); mlistEl.appendChild(div); }); }
 function clearLoad(){ if(load&&load.mesh)scene.remove(load.mesh); load=null; cableLen=0; if(cableMesh)cableMesh.visible=false;
   if(crateMesh){scene.remove(crateMesh);crateMesh=null;} if(fire){scene.remove(fire.grp);fire=null;} }
 function resetHeli(){ if(heli){heli.position.set(0,0,0);heli.rotation.set(0,0,0);tilt.rotation.set(0,0,0);}
@@ -1286,6 +1297,7 @@ function openMenu(){ game.state='menu'; game.mission=null; guideArrow.visible=fa
   renderMenu(); menuEl.classList.remove('hidden'); resultsEl.classList.add('hidden'); }
 function endMission(lines,total,T){ const starsN=total>=T?3:total>=T*0.66?2:total>=T*0.4?1:0;
   if(game.mission&&total>getBest(game.mission.id))localStorage.setItem(bestKey(game.mission.id),total);
+  if(game.mission)setStars(game.mission.id,Math.max(getStars(game.mission.id),starsN));
   game.state='done'; guideArrow.visible=false;
   document.getElementById('resTitle').textContent=`Missione ${game.mission?game.mission.id:''} — ${game.mission?game.mission.nome:''}`;
   document.getElementById('resStars').textContent='★★★'.slice(0,starsN)+'☆☆☆'.slice(0,3-starsN);
@@ -1347,7 +1359,7 @@ const gaugesEl=document.getElementById('gauges');
 function headingDeg(){ const yaw=heli?heli.rotation.y:0; const e=-Math.cos(yaw),n=-Math.sin(yaw);
   return ((Math.atan2(e,n)*180/Math.PI)%360+360)%360; }
 function missionTarget(){ const m=game.mission; if(!m)return null;
-  if(m.type==='rings'){ if(game.ringIdx<rings.length)return rings[game.ringIdx].center;
+  if(m.type==='rings' || m.type==='tour'){ if(game.ringIdx<rings.length)return rings[game.ringIdx].center;
     return new THREE.Vector3(m.land[0],0,m.land[1]); }
   if(m.type==='cargo'){ if(!load||!load.attached)return crateMesh?crateMesh.position:new THREE.Vector3(m.crate[0],0,m.crate[1]);
     return new THREE.Vector3(m.target[0],0,m.target[1]); }
@@ -1470,9 +1482,84 @@ addEventListener('keydown',e=>{ if(document.activeElement&&document.activeElemen
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
   if(!e.repeat&&DISCRETE[e.code])DISCRETE[e.code](); keys[e.code]=true; });
 addEventListener('keyup',e=>{keys[e.code]=false;});
+/* === MIGLIORAMENTI === */
+const heliShadow=new THREE.Mesh(new THREE.CircleGeometry(3.4,32),
+ new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0,depthWrite:false}));
+heliShadow.rotation.x=-Math.PI/2; heliShadow.renderOrder=-1; scene.add(heliShadow);
+function updateHeliShadow(){ if(!heli)return; const a=heli.position.y-groundAt(heli.position.x,heli.position.z);
+  if(a<1.5||a>40){heliShadow.material.opacity=0;return;}
+  heliShadow.position.set(heli.position.x, groundAt(heli.position.x,heli.position.z)+0.04, heli.position.z);
+  const op=0.32*clamp(1-(a-1.5)/22,0,1); heliShadow.material.opacity=op;
+  const s=0.6+clamp(a/35,0,1)*0.7; heliShadow.scale.set(s,1,s); }
+function makeTaxiCar(){
+  const g=new THREE.Group();
+  const body=new THREE.Mesh(new THREE.BoxGeometry(3.4,0.9,1.6),new THREE.MeshStandardMaterial({color:0x4a5560,roughness:.6,metalness:.2}));
+  body.position.y=0.6; body.castShadow=true; g.add(body);
+  const cab=new THREE.Mesh(new THREE.BoxGeometry(1.8,0.85,1.55),new THREE.MeshStandardMaterial({color:0x2c3340,roughness:.5,metalness:.3}));
+  cab.position.set(-0.1,1.05,0); cab.castShadow=true; g.add(cab);
+  const win=new THREE.Mesh(new THREE.BoxGeometry(1.7,0.55,1.5),new THREE.MeshPhysicalMaterial({color:0x10202a,roughness:.1,transparent:true,opacity:.7}));
+  win.position.set(-0.1,1.2,0); g.add(win);
+  for(const [x,z] of [[1.2,0.8],[-1.2,0.8],[1.2,-0.8],[-1.2,-0.8]]){
+    const w=new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.32,0.28,12),new THREE.MeshStandardMaterial({color:0x1a1a1a,roughness:.9}));
+    w.rotation.z=Math.PI/2; w.position.set(x,0.3,z); w.castShadow=true; g.add(w);
+  }
+  const tail=new THREE.Mesh(new THREE.BoxGeometry(0.12,0.18,1.4),new THREE.MeshStandardMaterial({color:0xd01f2f,emissive:0xd01f2f,emissiveIntensity:0.6}));
+  tail.position.set(1.7,0.7,0); g.add(tail);
+  return g;
+}
+const taxiPath=[[-30,14],[40,14],[40,10],[60,10]];
+const taxiCar={mesh:makeTaxiCar(), seg:0, t:0, speed:0.06, dir:1};
+scene.add(taxiCar.mesh);
+function updateTaxiTraffic(dt,t){ const p=taxiPath[taxiCar.seg], q=taxiPath[(taxiCar.seg+1)%taxiPath.length];
+ taxiCar.t+=taxiCar.speed*taxiCar.dir*dt*60;
+ if(taxiCar.t>1){taxiCar.t=0; taxiCar.seg=(taxiCar.seg+1)%taxiPath.length;}
+ if(taxiCar.t<0){taxiCar.t=1; taxiCar.seg=(taxiCar.seg-1+taxiPath.length)%taxiPath.length;}
+ const a=taxiPath[taxiCar.seg], b=taxiPath[(taxiCar.seg+1)%taxiPath.length];
+ const x=a[0]+(b[0]-a[0])*taxiCar.t, z=a[1]+(b[1]-a[1])*taxiCar.t;
+ const dx=b[0]-a[0], dz=b[1]-a[1];
+ taxiCar.mesh.position.set(x, groundAt(x,z)+0.02, z);
+ taxiCar.mesh.rotation.y=Math.atan2(dx,dz)+Math.PI/2; }
+/* LOD: per il "far forest" spawna un secondo batch di alberi (r 120..200) usando
+   una versione semplificata della stessa geometria (no shader vento, tinta più cupa).
+   Riduce il costo vertex/fragment sulla parte lontana della scena. */
+const _origInst=instanciateGeo;
+function instanciateGeoLOD(geo,count,opts,seed){
+  if(opts.mode!=='tree' || !opts.wind) return _origInst(geo,count,opts,seed);
+  const im=_origInst(geo,count,opts,seed); if(!im||!im.count)return im;
+  const farOpts={...opts, wind:0, rMin:120, rMax:200, vMin:opts.vMin*0.9, vMax:opts.vMax*1.1, count:Math.max(20,Math.floor(count*0.7))};
+  const imFar=_origInst(geo,farOpts.count,farOpts,seed+7777); if(!imFar||!imFar.count)return im;
+  imFar.material.color=new THREE.Color(0x6a7268); imFar.material.roughness=1;
+  if(imFar.instanceColor){ const c=new THREE.Color(); for(let i=0;i<imFar.count;i++){ imFar.instanceColor.getColor(i,c);
+    c.multiplyScalar(0.78); imFar.instanceColor.setColor(i,c); } imFar.instanceColor.needsUpdate=true; }
+  imFar.castShadow=false; imFar.receiveShadow=false;
+  log(`✓ LOD alberi ${seed}: ${im.count} near + ${imFar.count} far`,'ok');
+  return im;
+}
+
 const elCol=document.getElementById('collective'),elCL=document.getElementById('cycLong'),elCT=document.getElementById('cycLat');
 elCol.addEventListener('input',e=>{ if(holdOn)setpoint=clamp(+e.target.value*30,0,40); else collective=+e.target.value; });
 elCL.addEventListener('input',e=>cycLong=+e.target.value); elCT.addEventListener('input',e=>cycLat=+e.target.value);
+let gpIdx=-1, gpPrev=[], gpEdge=false;
+const GP_MAP={0:toggleEngine,1:toggleHold,2:toggleDoors,3:cycleCamera,4:toggleAudio,9:openMenu};
+function pollGamepad(){
+  const gps=navigator.getGamepads?Array.from(navigator.getGamepads()).filter(Boolean):[];
+  if(!gps.length)return;
+  if(gpIdx<0||!gps[gpIdx])gpIdx=gps.findIndex(g=>g&&g.connected);
+  if(gpIdx<0||!gps[gpIdx])return;
+  const g=gps[gpIdx], dz=.18;
+  const ax=g.axes||[], bt=g.buttons||[];
+  // analog: collective left trigger axis? usa asse Y left stick per collective manuale
+  if(Math.abs(ax[1]||0)>dz){ if(holdOn)setpoint=clamp(setpoint-(ax[1])*6/60,0,40); else collective=clamp(collective-(ax[1])*1.1/60,0,1); }
+  // ciclici stick destro
+  if(Math.abs(ax[2]||0)>dz) cycLong=clamp(cycLong+ax[2]*1.8/60,-1,1);
+  if(Math.abs(ax[3]||0)>dz) cycLat=clamp(cycLat+ax[3]*1.8/60,-1,1);
+  // pedali triggers: ax[6]/[7] se disponibili
+  const ped=((bt[6]?.value||0)-(bt[7]?.value||0));
+  if(Math.abs(ped)>.1){ keys.KeyQ=ped>.1; keys.KeyE=ped<-.1; } else { keys.KeyQ=keys.KeyE=false; }
+  // bottoni front (rising edge)
+  bt.forEach((b,i)=>{ if(!b)return; const v=b.value||(b.pressed?1:0), prev=gpPrev[i]||0;
+    if(v>.5 && prev<=.5 && GP_MAP[i]) GP_MAP[i](); gpPrev[i]=v; });
+}
 const clock=new THREE.Clock();
 function animate(){ requestAnimationFrame(animate);
   const dt=Math.min(clock.getDelta(),0.05),t=clock.elapsedTime;
@@ -1575,7 +1662,7 @@ function animate(){ requestAnimationFrame(animate);
   if(autoCycle)tod=(tod+dt*(24/600))%24;
   updateWeather(dt,t); applyTod();
   if(game.state==='fly'&&heli){ game.elapsed+=dt; let objTxt=''; const m=game.mission;
-    if(m.type==='rings'){
+    if(m.type==='rings' || m.type==='tour'){
       if(game.ringIdx<rings.length){ const r=rings[game.ringIdx],d=heli.position.distanceTo(r.center);
         objTxt=`🎯 ANELLO ${game.ringIdx+1}/${rings.length} — ${d.toFixed(0)} m`;
         if(d<r.r){ const prec=Math.max(0,Math.round(50*(1-d/r.r))); game.ringPts+=100+prec; game.ringIdx++; styleRings();
@@ -1623,6 +1710,9 @@ function animate(){ requestAnimationFrame(animate);
   else if(alt>0.8)stato=engineOn?(holdOn?'HOLD QUOTA':'VOLO MANUALE'):'AUTOROTAZIONE'; else stato='A TERRA';
   tele.textContent=`RPM ${Math.round(rpm*100)}% · QUOTA ${alt.toFixed(1)} m · V/S ${vzV.toFixed(1)} · IAS ${speedH.toFixed(0)} · PRUA ${headingDeg().toFixed(0)}° · ${stato}`;
   drawMap(); drawCompass(); drawGauges();
+  pollGamepad();
+  updateHeliShadow();
+  updateTaxiTraffic(dt,t);
   renderer.render(scene,camera); }
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
 renderMenu();
