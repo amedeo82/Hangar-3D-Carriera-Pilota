@@ -1,4 +1,4 @@
-# Hangar 3D — Simulatore-gioco di elicottero
+# Hangar 3D — Simulatore gioco di elicottero
 
 Un simulatore di elicottero passeggeri **completamente in un singolo file HTML**, scritto in Three.js r160 via CDN. Nessun build step, nessuna installazione: si apre `index.html` in un browser moderno e si vola.
 
