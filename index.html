@@ -1426,10 +1426,9 @@ function buildWindSock(){
   ring.position.set(0.5,4.0,0); ring.rotation.y=Math.PI/2; grp.add(ring);
   const sock=new THREE.Mesh(new THREE.ConeGeometry(0.45,1.4,10,1,true),new THREE.MeshStandardMaterial({color:0xee7a22,roughness:.7,side:THREE.DoubleSide}));
   sock.position.set(1.1,4.0,0); sock.rotation.z=Math.PI/2;
-  sock.userData.baseRot={x:sock.rotation.x,y:sock.rotation.y,z:sock.rotation.z};
   grp.add(sock);
   grp.position.set(0, terrainHeight(0,0), -38);
-  grp.userData={sock, wind:0};
+  grp.userData={sock, wind:0, baseRot:{x:sock.rotation.x,y:sock.rotation.y,z:sock.rotation.z}};
   scene.add(grp);
   window.__windSock=grp;
   log('✓ Manica a vento aggiornata (asta + cerchio)','ok');
